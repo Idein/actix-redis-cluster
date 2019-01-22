@@ -4,37 +4,19 @@ extern crate env_logger;
 extern crate futures;
 
 use actix::prelude::*;
-use actix_redis::{command::*, Error, RedisActor};
+use actix_redis::{command::*, RedisClusterActor};
 use futures::Future;
 
 #[test]
-fn test_error_connect() {
-    let sys = System::new("test");
-
-    let addr = RedisActor::start("localhost:54000");
-    let _addr2 = addr.clone();
-
-    Arbiter::spawn_fn(move || {
-        addr.send(Get { key: "test".into() }).then(|res| {
-            match res {
-                Ok(Err(Error::NotConnected)) => (),
-                _ => panic!("Should not happen {:?}", res),
-            }
-            System::current().stop();
-            Ok(())
-        })
-    });
-
-    sys.run();
-}
-
-#[test]
-fn test_redis() {
+fn test_cluster_discovery() {
     env_logger::init();
     let sys = System::new("test");
 
-    let addr = RedisActor::start("127.0.0.1:6379");
-    let _addr2 = addr.clone();
+    let addr = RedisClusterActor::start(vec![
+        "127.0.0.1:7000".into(),
+        "127.0.0.1:7001".into(),
+        "127.0.0.1:7002".into(),
+    ]);
 
     Arbiter::spawn_fn(move || {
         let addr2 = addr.clone();

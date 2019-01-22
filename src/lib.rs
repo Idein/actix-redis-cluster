@@ -21,8 +21,12 @@ extern crate redis_async;
 extern crate failure;
 extern crate time;
 
+mod cluster;
+pub mod command;
 mod redis;
-pub use redis::{Command, RedisActor};
+mod slot;
+pub use cluster::RedisClusterActor;
+pub use redis::RedisActor;
 
 #[cfg(feature = "web")]
 extern crate actix_web;
@@ -40,9 +44,9 @@ extern crate serde_json;
 #[cfg(feature = "web")]
 mod session;
 #[cfg(feature = "web")]
-pub use session::RedisSessionBackend;
+pub use cookie::SameSite;
 #[cfg(feature = "web")]
-pub use cookie::{SameSite};
+pub use session::RedisSessionBackend;
 
 /// General purpose actix redis error
 #[derive(Fail, Debug)]
@@ -55,6 +59,9 @@ pub enum Error {
     /// Cancel all waters when connection get dropped
     #[fail(display = "Redis: Disconnected")]
     Disconnected,
+    /// Trying to access multiple slots at once in cluster mode
+    #[fail(display = "Redis: Multiple slot command {:?}", _0)]
+    MultipleSlot(Vec<u16>),
 }
 
 impl From<redis_async::error::Error> for Error {

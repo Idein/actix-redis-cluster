@@ -12,11 +12,12 @@ use futures::Future;
 use http::header::{self, HeaderValue};
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
-use redis_async::resp::RespValue;
 use serde_json;
 use time::Duration;
 
-use redis::{Command, RedisActor};
+use command::{Command, Expiration, Get, Set};
+use RedisActor;
+use RedisClusterActor;
 
 /// Session that stores data in redis
 pub struct RedisSession {
@@ -76,7 +77,27 @@ impl RedisSessionBackend {
         RedisSessionBackend(Rc::new(Inner {
             key: Key::from_master(key),
             ttl: "7200".to_owned(),
-            addr: RedisActor::start(addr),
+            addr: Redis::Redis(RedisActor::start(addr)),
+            name: "actix-session".to_owned(),
+            path: "/".to_owned(),
+            domain: None,
+            secure: false,
+            max_age: Some(Duration::days(7)),
+            same_site: None,
+        }))
+    }
+
+    /// Create new redis session backend with redis cluster
+    ///
+    /// * `addrs` - addresses of the redis masters
+    pub fn new_cluster<S: IntoIterator<Item = String>>(
+        addrs: S,
+        key: &[u8],
+    ) -> RedisSessionBackend {
+        RedisSessionBackend(Rc::new(Inner {
+            key: Key::from_master(key),
+            ttl: "7200".to_owned(),
+            addr: Redis::RedisCluster(RedisClusterActor::start(addrs)),
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
             domain: None,
@@ -87,7 +108,7 @@ impl RedisSessionBackend {
     }
 
     /// Set time to live in seconds for session value
-    pub fn ttl(mut self, ttl: u16) -> Self {
+    pub fn ttl(mut self, ttl: i32) -> Self {
         Rc::get_mut(&mut self.0).unwrap().ttl = format!("{}", ttl);
         self
     }
@@ -161,7 +182,7 @@ impl<S> SessionBackend<S> for RedisSessionBackend {
 struct Inner {
     key: Key,
     ttl: String,
-    addr: Addr<RedisActor>,
+    addr: Redis,
     name: String,
     path: String,
     domain: Option<String>,
@@ -170,10 +191,37 @@ struct Inner {
     same_site: Option<SameSite>,
 }
 
+enum Redis {
+    Redis(Addr<RedisActor>),
+    RedisCluster(Addr<RedisClusterActor>),
+}
+
+impl Redis {
+    fn send<M>(
+        &self,
+        msg: M,
+    ) -> ResponseFuture<Result<M::Output, super::Error>, MailboxError>
+    where
+        M: Command
+            + Message<Result = Result<<M as Command>::Output, super::Error>>
+            + Send
+            + 'static,
+        <M as Command>::Output: Send + 'static,
+    {
+        use self::Redis::*;
+
+        match self {
+            Redis(addr) => Box::new(addr.send(msg)),
+            RedisCluster(addr) => Box::new(addr.send(msg)),
+        }
+    }
+}
+
 impl Inner {
     #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
     fn load<S>(
-        &self, req: &mut HttpRequest<S>,
+        &self,
+        req: &mut HttpRequest<S>,
     ) -> Box<Future<Item = Option<(HashMap<String, String>, String)>, Error = Error>>
     {
         if let Ok(cookies) = req.cookies() {
@@ -185,33 +233,19 @@ impl Inner {
                         let value = cookie.value().to_owned();
                         return Box::new(
                             self.addr
-                                .send(Command(resp_array!["GET", cookie.value()]))
+                                .send(Get {
+                                    key: cookie.value().into(),
+                                })
                                 .map_err(Error::from)
                                 .and_then(move |res| match res {
-                                    Ok(val) => {
-                                        match val {
-                                            RespValue::Error(err) => {
-                                                return Err(
-                                                    error::ErrorInternalServerError(err),
-                                                )
-                                            }
-                                            RespValue::SimpleString(s) => {
-                                                if let Ok(val) = serde_json::from_str(&s)
-                                                {
-                                                    return Ok(Some((val, value)));
-                                                }
-                                            }
-                                            RespValue::BulkString(s) => {
-                                                if let Ok(val) =
-                                                    serde_json::from_slice(&s)
-                                                {
-                                                    return Ok(Some((val, value)));
-                                                }
-                                            }
-                                            _ => (),
+                                    Ok(Some(s)) => {
+                                        if let Ok(val) = serde_json::from_slice(&s) {
+                                            Ok(Some((val, value)))
+                                        } else {
+                                            Ok(None)
                                         }
-                                        Ok(None)
                                     }
+                                    Ok(None) => Ok(None),
                                     Err(err) => {
                                         Err(error::ErrorInternalServerError(err))
                                     }
@@ -227,7 +261,9 @@ impl Inner {
     }
 
     fn update(
-        &self, state: &HashMap<String, String>, mut resp: HttpResponse,
+        &self,
+        state: &HashMap<String, String>,
+        mut resp: HttpResponse,
         value: Option<&String>,
     ) -> Box<Future<Item = HttpResponse, Error = Error>> {
         let (value, jar) = if let Some(value) = value {
@@ -267,7 +303,11 @@ impl Inner {
             Err(e) => Either::A(FutErr(e.into())),
             Ok(body) => Either::B(
                 self.addr
-                    .send(Command(resp_array!["SET", value, body, "EX", &self.ttl]))
+                    .send(Set {
+                        key: value,
+                        value: body,
+                        expiration: Expiration::Ex(self.ttl.clone()),
+                    })
                     .map_err(Error::from)
                     .and_then(move |res| match res {
                         Ok(_) => {

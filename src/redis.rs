@@ -14,15 +14,8 @@ use tokio_io::io::WriteHalf;
 use tokio_io::AsyncRead;
 use tokio_tcp::TcpStream;
 
+use command::*;
 use Error;
-
-/// Command for send data to Redis
-#[derive(Debug)]
-pub struct Command(pub RespValue);
-
-impl Message for Command {
-    type Result = Result<RespValue, Error>;
-}
 
 /// Redis comminucation actor
 pub struct RedisActor {
@@ -123,18 +116,31 @@ impl StreamHandler<RespValue, RespError> for RedisActor {
     }
 }
 
-impl Handler<Command> for RedisActor {
-    type Result = ResponseFuture<RespValue, Error>;
-
-    fn handle(&mut self, msg: Command, _: &mut Self::Context) -> Self::Result {
+impl RedisActor {
+    fn send(&mut self, command: RespValue) -> ResponseFuture<RespValue, Error> {
         let (tx, rx) = oneshot::channel();
         if let Some(ref mut cell) = self.cell {
             self.queue.push_back(tx);
-            cell.write(msg.0);
+            cell.write(command);
         } else {
             let _ = tx.send(Err(Error::NotConnected));
         }
 
         Box::new(rx.map_err(|_| Error::Disconnected).and_then(|res| res))
+    }
+}
+
+impl<M> Handler<M> for RedisActor
+where
+    M: Command + Message<Result = Result<<M as Command>::Output, Error>>,
+    <M as Command>::Output: Send + 'static,
+{
+    type Result = ResponseFuture<M::Output, Error>;
+
+    fn handle(&mut self, msg: M, _: &mut Self::Context) -> Self::Result {
+        Box::new(
+            self.send(msg.into_request())
+                .and_then(|res| M::from_response(res).map_err(Error::Redis)),
+        )
     }
 }
