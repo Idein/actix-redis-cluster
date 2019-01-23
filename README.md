@@ -1,6 +1,10 @@
-# Actix redis [![Build Status](https://travis-ci.org/actix/actix-redis.svg?branch=master)](https://travis-ci.org/actix/actix-redis) [![codecov](https://codecov.io/gh/actix/actix-redis/branch/master/graph/badge.svg)](https://codecov.io/gh/actix/actix-redis) [![crates.io](http://meritbadge.herokuapp.com/actix-redis)](https://crates.io/crates/actix-redis) 
+# Actix redis cluster
 
-Redis integration for actix framework.
+Redis Cluster integration for actix framework.
+
+## How does this repository differ from Actix redis?
+
+This repository is a fork of [actix-redis](https://github.com/actix/actix-redis), which adds the support for Redis Cluster. Since the implementation is highly experimental and it contains breaking changes in the interface, we decided to publish this as a separate repository.
 
 ## Documentation
 
