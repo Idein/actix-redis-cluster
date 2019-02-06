@@ -294,3 +294,91 @@ impl Command for Asking {
         Ok(None)
     }
 }
+
+#[derive(Debug)]
+pub enum TtlError {
+    KeyNotExist,
+    NoExpire,
+    Unknown(i64),
+}
+
+impl std::fmt::Display for TtlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use self::TtlError::*;
+        match self {
+            KeyNotExist => write!(f, "key does not exist"),
+            NoExpire => write!(f, "key has no associated expire"),
+            Unknown(x) => write!(f, "unknown error: {}", x),
+        }
+    }
+}
+
+impl std::error::Error for TtlError {}
+
+#[derive(Debug)]
+pub struct Ttl {
+    pub key: String,
+}
+
+impl Message for Ttl {
+    type Result = Result<Result<i64, TtlError>, Error>;
+}
+
+impl Command for Ttl {
+    type Output = Result<i64, TtlError>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["TTL", self.key]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(-2) => Ok(Err(TtlError::NoExpire)),
+            RespValue::Integer(-1) => Ok(Err(TtlError::NoExpire)),
+            RespValue::Integer(x) if x < 0 => Ok(Err(TtlError::Unknown(x))),
+            RespValue::Integer(x) => Ok(Ok(x)),
+            res => Err(RespError::RESP(
+                "invalid response for TTL".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
+
+#[derive(Debug)]
+pub struct Pttl {
+    pub key: String,
+}
+
+impl Message for Pttl {
+    type Result = Result<Result<i64, TtlError>, Error>;
+}
+
+impl Command for Pttl {
+    type Output = Result<i64, TtlError>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["TTL", self.key]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(-2) => Ok(Err(TtlError::NoExpire)),
+            RespValue::Integer(-1) => Ok(Err(TtlError::NoExpire)),
+            RespValue::Integer(x) if x < 0 => Ok(Err(TtlError::Unknown(x))),
+            RespValue::Integer(x) => Ok(Ok(x)),
+            res => Err(RespError::RESP(
+                "invalid response for TTL".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
