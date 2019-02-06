@@ -512,3 +512,64 @@ impl Command for DecrBy {
         Ok(Some(hash_slot(self.key.as_bytes())))
     }
 }
+
+#[derive(Debug)]
+pub struct Ping(Option<String>);
+
+impl Message for Ping {
+    type Result = Result<String, Error>;
+}
+
+impl Command for Ping {
+    type Output = String;
+
+    fn into_request(self) -> RespValue {
+        match self.0 {
+            Some(s) => resp_array!["PING", s],
+            None => resp_array!["PING"],
+        }
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(s) => Ok(s),
+            res => Err(RespError::RESP(
+                "invalid response for PING".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug)]
+pub struct Echo(String);
+
+impl Message for Echo {
+    type Result = Result<String, Error>;
+}
+
+impl Command for Echo {
+    type Output = String;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["ECHO", self.0]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(s) => Ok(s),
+            res => Err(RespError::RESP(
+                "invalid response for ECHO".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(None)
+    }
+}
