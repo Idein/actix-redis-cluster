@@ -382,3 +382,133 @@ impl Command for Pttl {
         Ok(Some(hash_slot(self.key.as_bytes())))
     }
 }
+
+#[derive(Debug)]
+pub struct Incr {
+    pub key: String,
+}
+
+impl Message for Incr {
+    type Result = Result<Result<i64, String>, Error>;
+}
+
+impl Command for Incr {
+    type Output = Result<i64, String>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["INCR", self.key]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(x) => Ok(Ok(x)),
+            RespValue::Error(e) => Ok(Err(e)),
+            res => Err(RespError::RESP(
+                "invalid response for INCR".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
+
+#[derive(Debug)]
+pub struct IncrBy {
+    pub key: String,
+    pub increment: i64,
+}
+
+impl Message for IncrBy {
+    type Result = Result<Result<i64, String>, Error>;
+}
+
+impl Command for IncrBy {
+    type Output = Result<i64, String>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["INCRBY", self.key, RespValue::Integer(self.increment)]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(x) => Ok(Ok(x)),
+            RespValue::Error(e) => Ok(Err(e)),
+            res => Err(RespError::RESP(
+                "invalid response for INCRBY".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
+
+#[derive(Debug)]
+pub struct Decr {
+    pub key: String,
+}
+
+impl Message for Decr {
+    type Result = Result<Result<i64, String>, Error>;
+}
+
+impl Command for Decr {
+    type Output = Result<i64, String>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["DECR", self.key]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(x) => Ok(Ok(x)),
+            RespValue::Error(e) => Ok(Err(e)),
+            res => Err(RespError::RESP(
+                "invalid response for DECR".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
+
+#[derive(Debug)]
+pub struct DecrBy {
+    pub key: String,
+    pub decrement: i64,
+}
+
+impl Message for DecrBy {
+    type Result = Result<Result<i64, String>, Error>;
+}
+
+impl Command for DecrBy {
+    type Output = Result<i64, String>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["DECRBY", self.key, RespValue::Integer(self.decrement)]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(x) => Ok(Ok(x)),
+            RespValue::Error(e) => Ok(Err(e)),
+            res => Err(RespError::RESP(
+                "invalid response for DECRBY".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(hash_slot(self.key.as_bytes())))
+    }
+}
