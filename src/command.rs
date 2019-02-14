@@ -23,6 +23,21 @@ pub trait Command {
     fn key_slot(&self) -> Result<Option<u16>, Vec<u16>>;
 }
 
+fn hash_slot_many(keys: &Vec<String>) -> Result<Option<u16>, Vec<u16>> {
+    keys.iter().fold(Ok(None), |accum, key| {
+        let slot = hash_slot(key.as_bytes());
+        match accum {
+            Ok(None) => Ok(Some(slot)),
+            Ok(Some(s)) if s == slot => Ok(Some(slot)),
+            Ok(Some(s)) => Err(vec![s, slot]),
+            Err(mut s) => {
+                s.push(slot);
+                Err(s)
+            }
+        }
+    })
+}
+
 #[derive(Debug)]
 pub struct Get {
     pub key: String,
@@ -167,18 +182,7 @@ impl Command for Del {
 
     fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
         // calculate hash slot for each key and accumulate them if there are different slots
-        self.keys.iter().fold(Ok(None), |accum, key| {
-            let slot = hash_slot(key.as_bytes());
-            match accum {
-                Ok(None) => Ok(Some(slot)),
-                Ok(Some(s)) if s == slot => Ok(Some(slot)),
-                Ok(Some(s)) => Err(vec![s, slot]),
-                Err(mut s) => {
-                    s.push(slot);
-                    Err(s)
-                }
-            }
-        })
+        hash_slot_many(&self.keys)
     }
 }
 
@@ -571,5 +575,107 @@ impl Command for Echo {
 
     fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
         Ok(None)
+    }
+}
+
+pub struct ScriptExists {
+    pub hash: Vec<u8>,
+    pub slot: u16,
+}
+
+impl Message for ScriptExists {
+    type Result = Result<bool, Error>;
+}
+
+impl Command for ScriptExists {
+    type Output = bool;
+
+    fn into_request(self) -> RespValue {
+        RespValue::Array(vec![
+            "SCRIPT".into(),
+            "EXISTS".into(),
+            RespValue::BulkString(self.hash),
+        ])
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(0) => Ok(false),
+            RespValue::Integer(1) => Ok(true),
+            res => Err(RespError::RESP(
+                "invalid response for SCRIPT EXISTS".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(self.slot))
+    }
+}
+
+pub struct ScriptLoad {
+    pub script: String,
+    pub slot: u16,
+}
+
+impl Message for ScriptLoad {
+    type Result = Result<Vec<u8>, Error>;
+}
+
+impl Command for ScriptLoad {
+    type Output = Vec<u8>;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["SCRIPT", "LOAD", self.script]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::BulkString(hash) => Ok(hash),
+            res => Err(RespError::RESP(
+                "invalid response for SCRIPT LOAD".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(self.slot))
+    }
+}
+
+pub struct EvalSHA {
+    pub hash: Vec<u8>,
+    pub keys: Vec<String>,
+    pub args: Vec<RespValue>,
+}
+
+impl Message for EvalSHA {
+    type Result = Result<RespValue, Error>;
+}
+
+impl Command for EvalSHA {
+    type Output = RespValue;
+
+    fn into_request(mut self) -> RespValue {
+        let mut v = vec![
+            "EVALSHA".into(),
+            RespValue::BulkString(self.hash),
+            format!("{}", self.keys.len()).into(),
+        ];
+        for key in self.keys {
+            v.push(key.into());
+        }
+        v.append(&mut self.args);
+        RespValue::Array(v)
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        Ok(res)
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        hash_slot_many(&self.keys)
     }
 }
