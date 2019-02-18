@@ -614,16 +614,16 @@ impl Command for ScriptExists {
     }
 }
 
-pub struct ScriptLoad {
-    pub script: String,
+pub struct ScriptLoad<'a> {
+    pub script: &'a str,
     pub slot: u16,
 }
 
-impl Message for ScriptLoad {
+impl<'a> Message for ScriptLoad<'a> {
     type Result = Result<Vec<u8>, Error>;
 }
 
-impl Command for ScriptLoad {
+impl<'a> Command for ScriptLoad<'a> {
     type Output = Vec<u8>;
 
     fn into_request(self) -> RespValue {
