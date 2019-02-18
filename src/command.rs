@@ -645,6 +645,70 @@ impl<'a> Command for ScriptLoad<'a> {
     }
 }
 
+pub struct ScriptFlush {
+    pub slot: u16,
+}
+
+impl Message for ScriptFlush {
+    type Result = Result<String, Error>;
+}
+
+impl Command for ScriptFlush {
+    type Output = String;
+    fn into_request(self) -> RespValue {
+        resp_array!["SCRIPT", "FLUSH"]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(str) => Ok(str),
+            res => Err(RespError::RESP(
+                "invalid response for SCRIPT FLUSH".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        Ok(Some(self.slot))
+    }
+}
+
+pub struct Eval<'a> {
+    pub script: &'a str,
+    pub keys: Vec<String>,
+    pub args: Vec<RespValue>,
+}
+
+impl<'a> Message for Eval<'a> {
+    type Result = Result<RespValue, Error>;
+}
+
+impl<'a> Command for Eval<'a> {
+    type Output = RespValue;
+
+    fn into_request(mut self) -> RespValue {
+        let mut v = vec![
+            "EVAL".into(),
+            self.script.into(),
+            format!("{}", self.keys.len()).into(),
+        ];
+        for key in self.keys {
+            v.push(key.into());
+        }
+        v.append(&mut self.args);
+        RespValue::Array(v)
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        Ok(res)
+    }
+
+    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
+        hash_slot_many(&self.keys)
+    }
+}
+
 pub struct EvalSHA {
     pub hash: Vec<u8>,
     pub keys: Vec<String>,
