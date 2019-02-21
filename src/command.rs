@@ -655,7 +655,6 @@ impl Message for ScriptFlush {
 
 impl Command for ScriptFlush {
     type Output = String;
-
     fn into_request(self) -> RespValue {
         resp_array!["SCRIPT", "FLUSH"]
     }
@@ -710,17 +709,17 @@ impl<'a> Command for Eval<'a> {
     }
 }
 
-pub struct EvalSha {
+pub struct EvalSHA {
     pub hash: Vec<u8>,
     pub keys: Vec<String>,
     pub args: Vec<RespValue>,
 }
 
-impl Message for EvalSha {
+impl Message for EvalSHA {
     type Result = Result<RespValue, Error>;
 }
 
-impl Command for EvalSha {
+impl Command for EvalSHA {
     type Output = RespValue;
 
     fn into_request(mut self) -> RespValue {
