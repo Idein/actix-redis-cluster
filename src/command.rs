@@ -579,34 +579,42 @@ impl Command for Echo {
 }
 
 pub struct ScriptExists {
-    pub hash: Vec<u8>,
+    pub hash: Vec<Vec<u8>>,
     pub slot: u16,
 }
 
 impl Message for ScriptExists {
-    type Result = Result<bool, Error>;
+    type Result = Result<Vec<bool>, Error>;
 }
 
 impl Command for ScriptExists {
-    type Output = bool;
+    type Output = Vec<bool>;
 
     fn into_request(self) -> RespValue {
-        RespValue::Array(vec![
-            "SCRIPT".into(),
-            "EXISTS".into(),
-            RespValue::BulkString(self.hash),
-        ])
+        let mut req = vec!["SCRIPT".into(), "EXISTS".into()];
+        let mut args = self.hash.into_iter().map(RespValue::BulkString).collect();
+        req.append(&mut args);
+        RespValue::Array(req)
     }
 
     fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
-        match res {
-            RespValue::Integer(0) => Ok(false),
-            RespValue::Integer(1) => Ok(true),
-            res => Err(RespError::RESP(
-                "invalid response for SCRIPT EXISTS".into(),
-                Some(res),
-            )),
+        if let RespValue::Array(values) = &res {
+            let bool_values = values
+                .iter()
+                .map(|v| match v {
+                    RespValue::Integer(0) => Some(false),
+                    RespValue::Integer(1) => Some(true),
+                    _ => None,
+                })
+                .collect();
+            if let Some(results) = bool_values {
+                return Ok(results);
+            }
         }
+        Err(RespError::RESP(
+            "invalid response for SCRIPT EXISTS".into(),
+            Some(res),
+        ))
     }
 
     fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
