@@ -8,7 +8,7 @@ use actix_redis::{command::*, RedisClusterActor, RespValue};
 use futures::Future;
 
 #[test]
-fn test_cluster_eval() {
+fn test_cluster_lua_eval() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
@@ -40,7 +40,7 @@ fn test_cluster_eval() {
 }
 
 #[test]
-fn test_cluster_load_script() {
+fn test_cluster_lua_load_script() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
@@ -82,7 +82,7 @@ fn test_cluster_load_script() {
 }
 
 #[test]
-fn test_cluster_eval_sha() {
+fn test_cluster_lua_eval_sha() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
