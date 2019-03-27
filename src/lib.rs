@@ -25,8 +25,8 @@ mod cluster;
 pub mod command;
 mod redis;
 mod slot;
-pub use cluster::RedisClusterActor;
-pub use redis::RedisActor;
+pub use crate::cluster::RedisClusterActor;
+pub use crate::redis::RedisActor;
 
 #[cfg(feature = "web")]
 extern crate actix_web;
@@ -46,7 +46,7 @@ mod session;
 #[cfg(feature = "web")]
 pub use cookie::SameSite;
 #[cfg(feature = "web")]
-pub use session::RedisSessionBackend;
+pub use crate::session::RedisSessionBackend;
 
 /// General purpose actix redis error
 #[derive(Fail, Debug)]

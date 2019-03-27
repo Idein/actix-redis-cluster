@@ -2,9 +2,9 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::marker::PhantomData;
 
-use actix::actors::resolver::{Connect, Resolver};
-use actix::io::FramedWrite;
-use actix::prelude::*;
+use ::actix::actors::resolver::{Connect, Resolver};
+use ::actix::io::FramedWrite;
+use ::actix::prelude::*;
 use futures::unsync::oneshot;
 use futures::Future;
 use redis_async::error::Error as RespError;
@@ -14,8 +14,8 @@ use tokio_io::io::WriteHalf;
 use tokio_io::AsyncRead;
 use tokio_tcp::TcpStream;
 
-use command::*;
-use Error;
+use crate::command::*;
+use crate::Error;
 
 const MAX_RETRY: usize = 16;
 

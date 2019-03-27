@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::iter;
 use std::rc::Rc;
 
-use actix::prelude::*;
+use ::actix::prelude::*;
 use actix_web::middleware::session::{SessionBackend, SessionImpl};
 use actix_web::middleware::Response as MiddlewareResponse;
 use actix_web::{error, Error, HttpRequest, HttpResponse, Result};
@@ -15,9 +15,9 @@ use rand::{self, Rng};
 use serde_json;
 use time::Duration;
 
-use command::{Command, Expiration, Get, Set};
-use RedisActor;
-use RedisClusterActor;
+use crate::command::{Command, Expiration, Get, Set};
+use crate::RedisActor;
+use crate::RedisClusterActor;
 
 /// Session that stores data in redis
 pub struct RedisSession {

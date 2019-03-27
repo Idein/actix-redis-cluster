@@ -11,6 +11,7 @@ repository = "https://github.com/actix/actix-redis.git"
 documentation = "https://docs.rs/actix-redis/"
 categories = ["network-programming", "asynchronous"]
 exclude = [".gitignore", ".travis.yml", ".cargo/config", "appveyor.yml"]
+edition = "2018"
 
 [lib]
 name = "actix_redis"
