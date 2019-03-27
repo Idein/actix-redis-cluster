@@ -97,7 +97,7 @@ impl RedisSessionBackend {
         RedisSessionBackend(Rc::new(Inner {
             key: Key::from_master(key),
             ttl: "7200".to_owned(),
-            addr: Redis::RedisCluster(RedisClusterActor::start(addrs)),
+            addr: Redis::RedisCluster(RedisClusterActor::start(1, addrs)),
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
             domain: None,
