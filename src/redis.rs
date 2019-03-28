@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::io;
 
-use actix::actors::resolver::{Connect, Resolver};
-use actix::prelude::*;
+use ::actix::actors::resolver::{Connect, Resolver};
+use ::actix::prelude::*;
 use backoff::backoff::Backoff;
 use backoff::ExponentialBackoff;
 use futures::unsync::oneshot;
@@ -14,8 +14,8 @@ use tokio_io::io::WriteHalf;
 use tokio_io::AsyncRead;
 use tokio_tcp::TcpStream;
 
-use command::*;
-use Error;
+use crate::command::*;
+use crate::Error;
 
 /// Redis comminucation actor
 pub struct RedisActor {
@@ -56,7 +56,7 @@ impl Actor for RedisActor {
                     let (r, w) = stream.split();
 
                     // configure write side of the connection
-                    let mut framed = actix::io::FramedWrite::new(w, RespCodec, ctx);
+                    let framed = actix::io::FramedWrite::new(w, RespCodec, ctx);
                     act.cell = Some(framed);
 
                     // read side of the connection

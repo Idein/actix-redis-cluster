@@ -12,7 +12,7 @@ fn test_cluster_discovery() {
     env_logger::init();
     let sys = System::new("test");
 
-    let addr = RedisClusterActor::start(vec!["127.0.0.1:7000".into()]);
+    let addr = RedisClusterActor::start(3, vec!["127.0.0.1:7000".into()]);
 
     Arbiter::spawn_fn(move || {
         let addr2 = addr.clone();

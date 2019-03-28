@@ -1,8 +1,8 @@
+use crate::slot::hash_slot;
+use crate::Error;
+use crate::RespError;
 use actix::Message;
 use redis_async::resp::RespValue;
-use slot::hash_slot;
-use Error;
-use RespError;
 
 pub trait Command {
     type Output;

@@ -25,8 +25,8 @@ mod cluster;
 pub mod command;
 mod redis;
 mod slot;
-pub use cluster::RedisClusterActor;
-pub use redis::RedisActor;
+pub use crate::cluster::RedisClusterActor;
+pub use crate::redis::RedisActor;
 
 #[cfg(feature = "web")]
 extern crate actix_web;
@@ -44,9 +44,9 @@ extern crate serde_json;
 #[cfg(feature = "web")]
 mod session;
 #[cfg(feature = "web")]
-pub use cookie::SameSite;
+pub use crate::session::RedisSessionBackend;
 #[cfg(feature = "web")]
-pub use session::RedisSessionBackend;
+pub use cookie::SameSite;
 
 /// General purpose actix redis error
 #[derive(Fail, Debug)]
@@ -62,11 +62,20 @@ pub enum Error {
     /// Trying to access multiple slots at once in cluster mode
     #[fail(display = "Redis: Multiple slot command {:?}", _0)]
     MultipleSlot(Vec<u16>),
+    /// I/O Error
+    #[fail(display = "Redis: I/O error {}", _0)]
+    IoError(std::io::Error),
 }
 
 impl From<redis_async::error::Error> for Error {
     fn from(err: redis_async::error::Error) -> Error {
         Error::Redis(err)
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::IoError(err)
     }
 }
 
