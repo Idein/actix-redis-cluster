@@ -56,7 +56,7 @@ impl Actor for RedisActor {
                     let (r, w) = stream.split();
 
                     // configure write side of the connection
-                    let mut framed = actix::io::FramedWrite::new(w, RespCodec, ctx);
+                    let framed = actix::io::FramedWrite::new(w, RespCodec, ctx);
                     act.cell = Some(framed);
 
                     // read side of the connection
