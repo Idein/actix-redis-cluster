@@ -12,11 +12,14 @@ fn test_cluster_lua_eval() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
-    let addr = RedisClusterActor::start(vec![
-        "127.0.0.1:7000".into(),
-        "127.0.0.1:7001".into(),
-        "127.0.0.1:7002".into(),
-    ]);
+    let addr = RedisClusterActor::start(
+        4,
+        vec![
+            "127.0.0.1:7000".into(),
+            "127.0.0.1:7001".into(),
+            "127.0.0.1:7002".into(),
+        ],
+    );
 
     Arbiter::spawn_fn(move || {
         addr.send(Eval {
@@ -44,11 +47,14 @@ fn test_cluster_lua_load_script() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
-    let addr = RedisClusterActor::start(vec![
-        "127.0.0.1:7000".into(),
-        "127.0.0.1:7001".into(),
-        "127.0.0.1:7002".into(),
-    ]);
+    let addr = RedisClusterActor::start(
+        4,
+        vec![
+            "127.0.0.1:7000".into(),
+            "127.0.0.1:7001".into(),
+            "127.0.0.1:7002".into(),
+        ],
+    );
 
     Arbiter::spawn_fn(move || {
         addr.send(ScriptLoad {
@@ -86,11 +92,14 @@ fn test_cluster_lua_eval_sha() {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
-    let addr = RedisClusterActor::start(vec![
-        "127.0.0.1:7000".into(),
-        "127.0.0.1:7001".into(),
-        "127.0.0.1:7002".into(),
-    ]);
+    let addr = RedisClusterActor::start(
+        4,
+        vec![
+            "127.0.0.1:7000".into(),
+            "127.0.0.1:7001".into(),
+            "127.0.0.1:7002".into(),
+        ],
+    );
 
     Arbiter::spawn_fn(move || {
         addr.send(ScriptLoad {
