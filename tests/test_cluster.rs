@@ -45,4 +45,3 @@ fn test_cluster_discovery() {
 
     sys.run();
 }
-
