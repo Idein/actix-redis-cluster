@@ -108,7 +108,7 @@ impl RedisSessionBackend {
     }
 
     /// Set time to live in seconds for session value
-    pub fn ttl(mut self, ttl: i32) -> Self {
+    pub fn ttl(mut self, ttl: i64) -> Self {
         Rc::get_mut(&mut self.0).unwrap().ttl = format!("{}", ttl);
         self
     }
