@@ -75,7 +75,7 @@ fn crc16(buf: &[u8]) -> u16 {
     for &x in buf {
         crc = (crc << 8) ^ CRC16TAB[usize::from(((crc >> 8) ^ u16::from(x)) & 0x00FF)];
     }
-    return crc;
+    crc
 }
 
 pub fn hash_slot(key: &[u8]) -> u16 {
@@ -96,14 +96,117 @@ pub fn hash_slot(key: &[u8]) -> u16 {
     crc & 0x3FFF
 }
 
-#[test]
-fn test_hash_slot() {
-    assert_eq!(hash_slot(b"actix"), 15206);
-    assert_eq!(hash_slot(b"{actix}"), 15206);
-    assert_eq!(hash_slot(b"{actix"), 15704);
-    assert_eq!(hash_slot(b"{}actix"), 16375);
-    assert_eq!(hash_slot(b"{act}ix"), 3121);
-    assert_eq!(hash_slot(b"act{ix}"), 3629);
-    assert_eq!(hash_slot(b"{act{i}x}"), 7271);
-    assert_eq!(hash_slot(b"p{act}:of:negation"), 3121);
+#[derive(Debug)]
+pub struct HashError {
+    expected: u16,
+    actual: u16,
+    value: String,
+}
+
+impl std::fmt::Display for HashError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "unexpected hash value of {}: expected {}, got {}",
+            self.value, self.expected, self.actual
+        )
+    }
+}
+
+impl std::error::Error for HashError {}
+
+#[derive(Debug)]
+enum HasherState {
+    Init,
+    Valid(u16),
+}
+
+#[derive(Debug)]
+pub struct Hasher {
+    state: HasherState,
+}
+
+impl Default for Hasher {
+    fn default() -> Self {
+        Hasher::new()
+    }
+}
+
+impl Hasher {
+    pub fn new() -> Self {
+        Hasher {
+            state: HasherState::Init,
+        }
+    }
+
+    pub fn hash_bytes(&mut self, bytes: &[u8]) -> Result<(), HashError> {
+        let hash = hash_slot(bytes);
+        match self.state {
+            HasherState::Init => {
+                self.state = HasherState::Valid(hash);
+                Ok(())
+            }
+            HasherState::Valid(expected) if expected != hash => Err(HashError {
+                expected,
+                actual: hash,
+                value: format!("{:?}", bytes),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn hash_str(&mut self, s: &str) -> Result<(), HashError> {
+        let hash = hash_slot(s.as_bytes());
+        match self.state {
+            HasherState::Init => {
+                self.state = HasherState::Valid(hash);
+                Ok(())
+            }
+            HasherState::Valid(expected) if expected != hash => Err(HashError {
+                expected,
+                actual: hash,
+                value: format!("{}", s),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn set(&mut self, hash: u16) -> Result<(), HashError> {
+        match self.state {
+            HasherState::Init => {
+                self.state = HasherState::Valid(hash);
+                Ok(())
+            }
+            HasherState::Valid(expected) if expected != hash => Err(HashError {
+                expected,
+                actual: hash,
+                value: String::new(),
+            }),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn get(&self) -> Option<u16> {
+        match self.state {
+            HasherState::Init => None,
+            HasherState::Valid(hash) => Some(hash),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::hash_slot;
+
+    #[test]
+    fn test_hash_slot() {
+        assert_eq!(hash_slot(b"actix"), 15206);
+        assert_eq!(hash_slot(b"{actix}"), 15206);
+        assert_eq!(hash_slot(b"{actix"), 15704);
+        assert_eq!(hash_slot(b"{}actix"), 16375);
+        assert_eq!(hash_slot(b"{act}ix"), 3121);
+        assert_eq!(hash_slot(b"act{ix}"), 3629);
+        assert_eq!(hash_slot(b"{act{i}x}"), 7271);
+        assert_eq!(hash_slot(b"p{act}:of:negation"), 3121);
+    }
 }

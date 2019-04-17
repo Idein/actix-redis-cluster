@@ -61,7 +61,7 @@ pub enum Error {
     Disconnected,
     /// Trying to access multiple slots at once in cluster mode
     #[fail(display = "Redis: Multiple slot command {:?}", _0)]
-    MultipleSlot(Vec<u16>),
+    MultipleSlot(slot::HashError),
     /// I/O Error
     #[fail(display = "Redis: I/O error {}", _0)]
     IoError(std::io::Error),
@@ -76,6 +76,12 @@ impl From<redis_async::error::Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Error {
         Error::IoError(err)
+    }
+}
+
+impl From<slot::HashError> for Error {
+    fn from(err: slot::HashError) -> Error {
+        Error::MultipleSlot(err)
     }
 }
 

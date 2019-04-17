@@ -1,4 +1,4 @@
-use crate::slot::hash_slot;
+use crate::slot::{HashError, Hasher};
 use crate::Error;
 use crate::RespError;
 use actix::Message;
@@ -14,28 +14,11 @@ pub trait Command {
     fn from_response(res: RespValue) -> Result<Self::Output, RespError>;
 
     /// Calculate the slot number of the keys of this command.
-    /// If all keys are stored in the same slot, Ok(Some(`slot`)) is returned.
-    /// If there is no key in the command, Ok(None) is returned.
+    /// If all keys (including zero) fall into the same slot, Ok(()) is returned.
     ///
     /// # Failures
-    /// If the keys are stored in different slots, this function reports an error with those slot
-    /// numbers.
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>>;
-}
-
-fn hash_slot_many(keys: &Vec<String>) -> Result<Option<u16>, Vec<u16>> {
-    keys.iter().fold(Ok(None), |accum, key| {
-        let slot = hash_slot(key.as_bytes());
-        match accum {
-            Ok(None) => Ok(Some(slot)),
-            Ok(Some(s)) if s == slot => Ok(Some(slot)),
-            Ok(Some(s)) => Err(vec![s, slot]),
-            Err(mut s) => {
-                s.push(slot);
-                Err(s)
-            }
-        }
-    })
+    /// If the keys falls into different slots, an error is reported
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError>;
 }
 
 #[derive(Debug)]
@@ -65,8 +48,8 @@ impl Command for Get {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -112,8 +95,8 @@ impl Command for Set {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -146,8 +129,8 @@ impl Command for Expire {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -180,9 +163,11 @@ impl Command for Del {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        // calculate hash slot for each key and accumulate them if there are different slots
-        hash_slot_many(&self.keys)
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        for key in self.keys.iter() {
+            hasher.hash_str(key)?
+        }
+        Ok(())
     }
 }
 
@@ -265,8 +250,8 @@ impl Command for ClusterSlots {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(None)
+    fn hash_keys(&self, _hasher: &mut Hasher) -> Result<(), HashError> {
+        Ok(())
     }
 }
 
@@ -294,8 +279,8 @@ impl Command for Asking {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(None)
+    fn hash_keys(&self, _hasher: &mut Hasher) -> Result<(), HashError> {
+        Ok(())
     }
 }
 
@@ -348,8 +333,8 @@ impl Command for Ttl {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -382,8 +367,8 @@ impl Command for Pttl {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -414,8 +399,8 @@ impl Command for Incr {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -447,8 +432,8 @@ impl Command for IncrBy {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -479,8 +464,8 @@ impl Command for Decr {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -512,8 +497,8 @@ impl Command for DecrBy {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(hash_slot(self.key.as_bytes())))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.hash_str(&self.key)
     }
 }
 
@@ -544,8 +529,8 @@ impl Command for Ping {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(None)
+    fn hash_keys(&self, _hasher: &mut Hasher) -> Result<(), HashError> {
+        Ok(())
     }
 }
 
@@ -573,8 +558,8 @@ impl Command for Echo {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(None)
+    fn hash_keys(&self, _hasher: &mut Hasher) -> Result<(), HashError> {
+        Ok(())
     }
 }
 
@@ -617,8 +602,8 @@ impl Command for ScriptExists {
         ))
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(self.slot))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.slot)
     }
 }
 
@@ -648,8 +633,8 @@ impl<'a> Command for ScriptLoad<'a> {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(self.slot))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.slot)
     }
 }
 
@@ -678,8 +663,8 @@ impl Command for ScriptFlush {
         }
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        Ok(Some(self.slot))
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.slot)
     }
 }
 
@@ -713,8 +698,11 @@ impl<'a> Command for Eval<'a> {
         Ok(res)
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        hash_slot_many(&self.keys)
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        for key in self.keys.iter() {
+            hasher.hash_str(key)?
+        }
+        Ok(())
     }
 }
 
@@ -748,7 +736,10 @@ impl Command for EvalSha {
         Ok(res)
     }
 
-    fn key_slot(&self) -> Result<Option<u16>, Vec<u16>> {
-        hash_slot_many(&self.keys)
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        for key in self.keys.iter() {
+            hasher.hash_str(key)?
+        }
+        Ok(())
     }
 }
