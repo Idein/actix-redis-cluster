@@ -10,6 +10,7 @@ use tokio_codec::Framed;
 use tokio_tcp::TcpStream;
 
 use crate::command::*;
+use crate::slot::Hasher;
 use crate::Error;
 
 const MAX_RETRY: usize = 16;
@@ -338,10 +339,9 @@ where
 
     fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
         // refuse operations over multiple slots
-        let slot = match msg.key_slot() {
-            Ok(slot) => slot,
-            Err(e) => return Err(Error::MultipleSlot(e)),
-        };
+        let mut hasher = Hasher::new();
+        msg.hash_keys(&mut hasher)?;
+        let slot = hasher.get();
         let req = msg.into_request();
         let addr = self.choose_node_addr(slot).cloned();
 
