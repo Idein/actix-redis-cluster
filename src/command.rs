@@ -19,6 +19,17 @@ pub trait Command {
     /// # Failures
     /// If the keys falls into different slots, an error is reported
     fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError>;
+
+    /// Calculate the slot number of the keys of this command.
+    /// If there is no keys, return Ok(None)
+    ///
+    /// # Failures
+    /// If the keys falls into different slots, an error is reported
+    fn key_slot(&self) -> Result<Option<u16>, HashError> {
+        let mut hasher = Hasher::new();
+        self.hash_keys(&mut hasher)?;
+        Ok(hasher.get())
+    }
 }
 
 #[derive(Debug)]
