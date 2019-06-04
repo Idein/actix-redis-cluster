@@ -130,6 +130,20 @@ impl RedisActor {
     }
 }
 
+pub(crate) struct RespValueWrapper(pub RespValue);
+
+impl Message for RespValueWrapper {
+    type Result = Result<RespValue, Error>;
+}
+
+impl Handler<RespValueWrapper> for RedisActor {
+    type Result = ResponseFuture<RespValue, Error>;
+
+    fn handle(&mut self, msg: RespValueWrapper, _: &mut Self::Context) -> Self::Result {
+        self.send(msg.0)
+    }
+}
+
 impl<M> Handler<M> for RedisActor
 where
     M: Command + Message<Result = Result<<M as Command>::Output, Error>>,

@@ -1,260 +1,164 @@
-use std::collections::HashMap;
-use std::marker::PhantomData;
-
-use ::actix::actors::resolver::{Connect, Resolver};
 use ::actix::prelude::*;
 use futures::Future;
-use redis_async::resp::{RespCodec, RespValue};
+use redis_async::resp::RespValue;
 
-use tokio_codec::Framed;
-use tokio_tcp::TcpStream;
+use std::collections::HashMap;
 
 use crate::command::*;
+use crate::redis::RespValueWrapper;
 use crate::Error;
+use crate::RedisActor;
 
 const MAX_RETRY: usize = 16;
 
 fn fmt_resp_value(o: &::redis_async::resp::RespValue) -> String {
     use redis_async::resp::RespValue;
     match o {
-        RespValue::Nil => format!("nil"),
+        RespValue::Nil => "nil".to_string(),
         RespValue::Array(ref o) => format!(
             "[{}]",
             o.iter().map(fmt_resp_value).collect::<Vec<_>>().join(" ")
         ),
         RespValue::BulkString(ref o) => format!("\"{}\"", String::from_utf8_lossy(o)),
-        RespValue::Error(ref o) => format!("{}", o),
-        RespValue::Integer(ref o) => format!("{}", o),
-        RespValue::SimpleString(ref o) => format!("{}", o),
+        RespValue::Error(ref o) => o.to_string(),
+        RespValue::Integer(ref o) => o.to_string(),
+        RespValue::SimpleString(ref o) => o.to_string(),
     }
 }
 
-type ReadHalf = futures::stream::Wait<
-    futures::stream::SplitStream<
-        tokio_codec::Framed<tokio_tcp::TcpStream, redis_async::resp::RespCodec>,
-    >,
->;
-type WriteHalf = futures::sink::Wait<
-    futures::stream::SplitSink<
-        tokio_codec::Framed<tokio_tcp::TcpStream, redis_async::resp::RespCodec>,
-    >,
->;
-
-struct Node {
-    read: ReadHalf,
-    write: WriteHalf,
-}
-
-impl Node {
-    fn new(stream: TcpStream) -> Self {
-        use futures::{Sink, Stream};
-
-        let framed = Framed::new(stream, RespCodec);
-        let (sink, stream) = framed.split();
-
-        Node {
-            read: stream.wait(),
-            write: sink.wait(),
-        }
-    }
-}
-
-#[derive(Debug)]
 struct Slots {
     start: u16,
     end: u16,
     master_addr: String,
 }
 
+impl std::fmt::Debug for Slots {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Slots")
+            .field("start", &self.start)
+            .field("end", &self.end)
+            .field("master_addr", &self.master_addr)
+            .finish()
+    }
+}
+
 pub struct RedisClusterActor {
-    addrs: Vec<String>,
-    nodes: HashMap<String, Node>,
-    stale_slots: bool,
+    initial_addr: String,
     slots: Vec<Slots>,
+    connections: HashMap<String, Addr<RedisActor>>,
 }
 
 impl RedisClusterActor {
-    pub fn start<S: IntoIterator<Item = String>>(
-        threads: usize,
-        addrs: S,
-    ) -> Addr<RedisClusterActor> {
-        let addrs: Vec<_> = addrs.into_iter().collect();
+    pub fn start<S: Into<String>>(addr: S) -> Addr<RedisClusterActor> {
+        let addr = addr.into();
 
-        SyncArbiter::start(threads, move || RedisClusterActor {
-            addrs: addrs.clone(),
-            nodes: HashMap::new(),
-            stale_slots: true,
+        Supervisor::start(move |_ctx| RedisClusterActor {
+            initial_addr: addr,
             slots: vec![],
+            connections: HashMap::new(),
         })
+    }
+
+    fn refresh_slots(&mut self) -> ResponseFuture<Vec<Slots>, Error> {
+        let addr = self.initial_addr.clone();
+        let control_connection = self
+            .connections
+            .entry(addr.clone())
+            .or_insert_with(move || RedisActor::start(addr));
+
+        Box::new(control_connection.send(ClusterSlots).then(|res| {
+            match res {
+                Ok(Ok(res)) => Ok(res
+                    .into_iter()
+                    .filter_map(|(start, end, addrs)| {
+                        addrs.into_iter().next().map(|master_addr| Slots {
+                            start,
+                            end,
+                            master_addr,
+                        })
+                    })
+                    .collect::<Vec<_>>()),
+                Ok(Err(e)) => Err(e),
+                Err(_canceled) => Err(Error::Disconnected),
+            }
+        }))
     }
 }
 
 impl Actor for RedisClusterActor {
-    type Context = SyncContext<Self>;
+    type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let addrs = self.addrs.clone();
-        for addr in addrs.into_iter() {
-            if let Err(_) = self.connect_to_node(addr) {
-                ctx.stop();
-            };
-        }
-
-        match self.random_node_addr() {
-            Some(addr) => {
-                if let Err(_) = self.retrieve_cluster_slots(addr.clone(), ctx) {
-                    ctx.stop()
+        // TODO: does this solve the issue (#1?)?
+        ctx.wait(self.refresh_slots().into_actor(self).then(
+            |res, this, _ctx| match res {
+                Ok(slots) => {
+                    for slots in slots.iter() {
+                        this.connections
+                            .entry(slots.master_addr.clone())
+                            .or_insert_with(|| {
+                                RedisActor::start(slots.master_addr.clone())
+                            });
+                    }
+                    this.slots = slots;
+                    debug!("slots: {:?}", this.slots);
+                    actix::fut::ok(())
                 }
-            }
-            None => ctx.stop(),
-        }
+                Err(e) => {
+                    warn!("refreshing slots failed: {:?}", e);
+                    actix::fut::err(())
+                }
+            },
+        ));
     }
 }
 
 impl Supervised for RedisClusterActor {
     fn restarting(&mut self, _: &mut Self::Context) {
-        self.nodes.clear();
+        self.slots.clear();
+        self.connections.clear();
     }
 }
 
-impl RedisClusterActor {
-    fn random_node_addr(&self) -> Option<&String> {
-        let mut rng = rand::thread_rng();
-        match rand::seq::sample_iter(&mut rng, self.nodes.keys(), 1) {
-            Ok(v) => {
-                let addr = v.into_iter().next().unwrap();
-                debug!("random node: {}", addr);
-                Some(addr)
-            }
-            Err(_) => None,
-        }
-    }
-
-    fn choose_node_addr(&self, slot: Option<u16>) -> Option<&String> {
-        if let Some(slot) = slot {
-            for slots in self.slots.iter() {
-                if slots.start <= slot && slot <= slots.end {
-                    return Some(&slots.master_addr);
-                }
-            }
-        }
-
-        self.random_node_addr()
-    }
-
-    fn connect_to_node(&mut self, addr: String) -> Result<(), ()> {
-        if self.nodes.contains_key(&addr) {
-            return Ok(());
-        }
-
-        let stream = Resolver::from_registry()
-            .send(Connect::host(&addr))
-            .wait()
-            .map_err(|e| warn!("Failed to send a message to the resolver: {:?}", e))
-            .and_then(|x| x.map_err(|e| warn!("Failed to resolve the host: {:?}", e)))?;
-
-        info!("Connected to redis server: {}", addr);
-
-        // sanity check
-        assert!(self.nodes.insert(addr, Node::new(stream)).is_none());
-
-        Ok(())
-    }
-
-    fn retrieve_cluster_slots(
-        &mut self,
-        addr: String,
-        ctx: &mut SyncContext<Self>,
-    ) -> Result<(), Error> {
-        let slots = self.handle(
-            RawRequest::<ClusterSlots>::new(addr, ClusterSlots.into_request(), 0),
-            ctx,
-        );
-
-        match slots {
-            Ok(slots) => {
-                self.stale_slots = false;
-                self.slots = slots
-                    .into_iter()
-                    .filter_map(|(start, end, addrs)| {
-                        if !addrs.is_empty() {
-                            let master_addr = addrs.into_iter().next().unwrap();
-                            self.connect_to_node(master_addr.clone()).unwrap(); // TODO: handle error
-
-                            Some(Slots {
-                                start,
-                                end,
-                                master_addr,
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                debug!("{:?}", self.slots);
-                Ok(())
-            }
-            Err(e) => {
-                warn!("cannot retrieve CLUSTER SLOTS: {:?}", e);
-                Err(e)
-            }
-        }
-    }
-}
-
-struct RawRequest<M> {
+#[derive(Debug, Clone)]
+struct Retry {
     addr: String,
     req: RespValue,
     retry: usize,
-    phantom: PhantomData<M>,
 }
 
-impl<M> Message for RawRequest<M>
-where
-    M: Command
-        + Message<Result = Result<<M as Command>::Output, Error>>
-        + Send
-        + 'static,
-    <M as Command>::Output: Send + 'static,
-{
-    type Result = M::Result;
+impl Message for Retry {
+    type Result = Result<RespValue, Error>;
 }
 
-impl<M> RawRequest<M> {
+impl Retry {
     fn new(addr: String, req: RespValue, retry: usize) -> Self {
-        RawRequest {
-            addr,
-            req,
-            retry,
-            phantom: PhantomData,
-        }
+        Retry { addr, req, retry }
     }
 }
 
-impl<M> Handler<RawRequest<M>> for RedisClusterActor
-where
-    M: Command
-        + Message<Result = Result<<M as Command>::Output, Error>>
-        + Send
-        + 'static,
-    <M as Command>::Output: Send + 'static,
-{
-    type Result = Result<M::Output, Error>;
+impl Handler<Retry> for RedisClusterActor {
+    type Result = ResponseActFuture<RedisClusterActor, RespValue, Error>;
 
-    fn handle(&mut self, msg: RawRequest<M>, ctx: &mut Self::Context) -> Self::Result {
-        let RawRequest {
-            addr, req, retry, ..
-        } = msg;
+    fn handle(&mut self, msg: Retry, _ctx: &mut Self::Context) -> Self::Result {
+        fn do_retry(
+            this: &mut RedisClusterActor,
+            addr: String,
+            req: RespValue,
+            retry: usize,
+        ) -> ResponseActFuture<RedisClusterActor, RespValue, Error> {
+            use actix::fut::{err, ok};
 
-        match self.nodes.get_mut(&addr) {
-            Some(node) => {
-                node.write.send(req.clone())?;
-                node.write.flush()?;
-
-                match node.read.next() {
-                    Some(res) => match res {
-                        // handle MOVED redirection
-                        Ok(RespValue::Error(ref e))
+            let connection = this
+                .connections
+                .entry(addr.clone())
+                .or_insert_with(move || RedisActor::start(addr));
+            Box::new(
+                connection
+                    .send(RespValueWrapper(req.clone()))
+                    .into_actor(this)
+                    .then(move |res, this, ctx| match res {
+                        Ok(Ok(RespValue::Error(ref e)))
                             if e.starts_with("MOVED") && retry < MAX_RETRY =>
                         {
                             info!(
@@ -265,64 +169,64 @@ where
 
                             let mut values = e.split(' ');
                             let _moved = values.next().unwrap();
-                            // TODO: add to slot table
                             let _slot = values.next().unwrap();
                             let addr = values.next().unwrap();
 
-                            self.stale_slots = true;
-                            self.connect_to_node(addr.to_string()).map_err(|()| {
-                                error!("Could not connect to redirected node: {}", addr);
-                                Error::NotConnected
-                            })?;
+                            // TODO: refresh slots
 
-                            self.handle(
-                                RawRequest::<M>::new(addr.to_string(), req, retry + 1),
-                                ctx,
-                            )
+                            do_retry(this, addr.to_string(), req, retry + 1)
                         }
-                        Ok(RespValue::Error(ref e)) if e.starts_with("ASK") => {
+                        Ok(Ok(RespValue::Error(ref e)))
+                            if e.starts_with("ASK") && retry < MAX_RETRY =>
+                        {
                             info!(
-                                "MOVED redirection: retry = {}, request = {}",
+                                "ASK redirection: retry = {}, request = {}",
                                 retry,
                                 fmt_resp_value(&req)
                             );
 
                             let mut values = e.split(' ');
-                            let _ask = values.next().unwrap();
+                            let _moved = values.next().unwrap();
                             let _slot = values.next().unwrap();
                             let addr = values.next().unwrap();
 
-                            self.connect_to_node(addr.to_string()).map_err(|()| {
-                                error!("Could not connect to redirected node: {}", addr);
-                                Error::NotConnected
-                            })?;
-
-                            // first, send ASKING command
-                            self.handle(
-                                RawRequest::<Asking>::new(
+                            ctx.spawn(
+                                // No retry for ASKING
+                                do_retry(
+                                    this,
                                     addr.to_string(),
                                     Asking.into_request(),
-                                    0,
+                                    MAX_RETRY,
+                                )
+                                .then(
+                                    |res, _this, _ctx| {
+                                        match res.map(Asking::from_response) {
+                                            Ok(Ok(())) => {}
+                                            e => {
+                                                warn!("failed to issue ASKING: {:?}", e)
+                                            }
+                                        };
+                                        ok(())
+                                    },
                                 ),
-                                ctx,
-                            )?;
+                            );
 
-                            self.handle(
-                                RawRequest::<M>::new(addr.to_string(), req, retry),
-                                ctx,
-                            )
+                            do_retry(this, addr.to_string(), req, retry + 1)
                         }
-                        Ok(res) => match M::from_response(res) {
-                            Ok(v) => Ok(v),
-                            Err(e) => Err(Error::Redis(e)),
-                        },
-                        Err(e) => Err(Error::Redis(e)),
-                    },
-                    None => Err(Error::Disconnected),
-                }
-            }
-            None => Err(Error::NotConnected),
+                        Ok(Ok(res)) => Box::new(ok(res)),
+                        Ok(Err(e)) => Box::new(err(e)),
+                        Err(_canceled) => Box::new(err(Error::Disconnected)),
+                    }),
+            )
         }
+
+        debug!(
+            "processing: req = {}, addr = {}, retry = {}",
+            fmt_resp_value(&msg.req),
+            msg.addr,
+            msg.retry
+        );
+        do_retry(self, msg.addr, msg.req, msg.retry)
     }
 }
 
@@ -334,20 +238,60 @@ where
         + 'static,
     <M as Command>::Output: Send + 'static,
 {
-    type Result = Result<M::Output, Error>;
+    type Result = ResponseActFuture<RedisClusterActor, M::Output, Error>;
 
     fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
-        // refuse operations over multiple slots
-        let slot = msg.key_slot()?;
-        let req = msg.into_request();
-        let addr = self.choose_node_addr(slot).cloned();
+        use futures::IntoFuture;
 
-        match addr {
-            None => {
-                warn!("RedisClusterActor is not connected to any nodes");
-                Err(Error::NotConnected)
+        // refuse operations over multiple slots
+        let slot = match msg.key_slot() {
+            Ok(slot) => slot,
+            Err(e) => return Box::new(actix::fut::err(Error::MultipleSlot(e))),
+        };
+        let req = msg.into_request();
+
+        let fut = (|| match slot {
+            Some(slot) => {
+                for slots in self.slots.iter() {
+                    if slots.start <= slot && slot <= slots.end {
+                        return actix::Handler::handle(
+                            self,
+                            Retry::new(slots.master_addr.clone(), req, 0),
+                            ctx,
+                        );
+                    }
+                }
+
+                warn!("no node is serving the slot {}", slot);
+                Box::new(actix::fut::err(Error::NotConnected))
             }
-            Some(addr) => self.handle(RawRequest::<M>::new(addr, req, 0), ctx),
-        }
+            None => actix::Handler::handle(
+                self,
+                Retry::new(self.initial_addr.clone(), req, 0),
+                ctx,
+            ),
+        })();
+
+        Box::new(fut.and_then(|res, this, _ctx| {
+            M::from_response(res)
+                .map_err(Error::Redis)
+                .into_future()
+                .into_actor(this)
+        }))
+    }
+}
+
+#[doc(hidden)]
+pub struct Stop;
+
+impl Message for Stop {
+    type Result = ();
+}
+
+impl Handler<Stop> for RedisClusterActor {
+    type Result = ();
+
+    fn handle(&mut self, _: Stop, ctx: &mut Self::Context) -> Self::Result {
+        ctx.stop();
     }
 }

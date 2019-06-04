@@ -1,8 +1,3 @@
-extern crate actix;
-extern crate actix_redis;
-extern crate env_logger;
-extern crate futures;
-
 use actix::prelude::*;
 use actix_redis::{command::*, Error, RedisActor};
 use futures::Future;

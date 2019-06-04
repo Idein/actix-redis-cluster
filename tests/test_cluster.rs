@@ -1,25 +1,13 @@
-extern crate actix;
-extern crate actix_redis;
-extern crate env_logger;
-extern crate futures;
-
 use actix::prelude::*;
 use actix_redis::{command::*, RedisClusterActor};
 use futures::Future;
 
 #[test]
-fn test_cluster_discovery() {
+fn test_cluster() {
     env_logger::init();
     let sys = System::new("test");
 
-    let addr = RedisClusterActor::start(
-        3,
-        vec![
-            "127.0.0.1:7000".into(),
-            "127.0.0.1:7001".into(),
-            "127.0.0.1:7002".into(),
-        ],
-    );
+    let addr = RedisClusterActor::start("127.0.0.1:7000");
 
     Arbiter::spawn_fn(move || {
         let addr2 = addr.clone();

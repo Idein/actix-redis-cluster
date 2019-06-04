@@ -90,14 +90,11 @@ impl RedisSessionBackend {
     /// Create new redis session backend with redis cluster
     ///
     /// * `addrs` - addresses of the redis masters
-    pub fn new_cluster<S: IntoIterator<Item = String>>(
-        addrs: S,
-        key: &[u8],
-    ) -> RedisSessionBackend {
+    pub fn new_cluster<S: Into<String>>(addr: S, key: &[u8]) -> RedisSessionBackend {
         RedisSessionBackend(Rc::new(Inner {
             key: Key::from_master(key),
             ttl: "7200".to_owned(),
-            addr: Redis::RedisCluster(RedisClusterActor::start(1, addrs)),
+            addr: Redis::RedisCluster(RedisClusterActor::start(addr)),
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
             domain: None,
@@ -236,7 +233,7 @@ impl Inner {
                                 .send(Get {
                                     key: cookie.value().into(),
                                 })
-                                .map_err(Error::from)
+                                .map_err(From::from)
                                 .and_then(move |res| match res {
                                     Ok(Some(s)) => {
                                         if let Ok(val) = serde_json::from_slice(&s) {

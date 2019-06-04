@@ -21,10 +21,10 @@ extern crate redis_async;
 extern crate failure;
 extern crate time;
 
-mod cluster;
+pub mod cluster;
 pub mod command;
-mod redis;
-mod slot;
+pub mod redis;
+pub mod slot;
 pub use crate::cluster::RedisClusterActor;
 pub use crate::redis::RedisActor;
 

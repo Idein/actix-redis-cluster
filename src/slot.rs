@@ -165,7 +165,7 @@ impl Hasher {
             HasherState::Valid(expected) if expected != hash => Err(HashError {
                 expected,
                 actual: hash,
-                value: format!("{}", s),
+                value: s.to_string(),
             }),
             _ => Ok(()),
         }
