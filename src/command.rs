@@ -185,12 +185,27 @@ impl Command for Del {
 #[derive(Debug)]
 pub struct ClusterSlots;
 
+#[derive(Clone, Debug)]
+pub struct Slots {
+    pub start: u16,
+    pub end: u16,
+    /// IP address, port, id of nodes serving the slots.
+    /// The first entry corresponds to the master node.
+    pub nodes: Vec<(String, i64, Option<String>)>,
+}
+
+impl Slots {
+    pub fn master(&self) -> String {
+        format!("{}:{}", self.nodes[0].0, self.nodes[0].1)
+    }
+}
+
 impl Message for ClusterSlots {
-    type Result = Result<Vec<(u16, u16, Vec<String>)>, Error>;
+    type Result = Result<Vec<Slots>, Error>;
 }
 
 impl Command for ClusterSlots {
-    type Output = Vec<(u16, u16, Vec<String>)>;
+    type Output = Vec<Slots>;
 
     fn into_request(self) -> RespValue {
         resp_array!["CLUSTER", "SLOTS"]
@@ -199,7 +214,7 @@ impl Command for ClusterSlots {
     fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
         use redis_async::resp::FromResp;
 
-        fn parse_entry(res: RespValue) -> Result<(u16, u16, Vec<String>), RespError> {
+        fn parse_entry(res: RespValue) -> Result<Slots, RespError> {
             match res {
                 RespValue::Array(values) => {
                     if values.len() >= 3 {
@@ -215,9 +230,12 @@ impl Command for ClusterSlots {
                                         let mut it = node.into_iter();
                                         let addr =
                                             String::from_resp(it.next().unwrap())?;
-                                        let port = usize::from_resp(it.next().unwrap())?;
+                                        let port = i64::from_resp(it.next().unwrap())?;
+                                        let id = it
+                                            .next()
+                                            .and_then(|x| String::from_resp(x).ok());
 
-                                        nodes.push(format!("{}:{}", addr, port));
+                                        nodes.push((addr, port, id));
                                     } else {
                                         return Err(RespError::RESP(
                                             "invalid response for CLUSTER SLOTS".into(),
@@ -234,7 +252,7 @@ impl Command for ClusterSlots {
                             }
                         }
 
-                        Ok((start, end, nodes))
+                        Ok(Slots { start, end, nodes })
                     } else {
                         Err(RespError::RESP(
                             "invalid response for CLUSTER SLOTS".into(),

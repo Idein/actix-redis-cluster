@@ -12,7 +12,6 @@ use crate::RedisActor;
 const MAX_RETRY: usize = 16;
 
 fn fmt_resp_value(o: &::redis_async::resp::RespValue) -> String {
-    use redis_async::resp::RespValue;
     match o {
         RespValue::Nil => "nil".to_string(),
         RespValue::Array(ref o) => format!(
@@ -23,22 +22,6 @@ fn fmt_resp_value(o: &::redis_async::resp::RespValue) -> String {
         RespValue::Error(ref o) => o.to_string(),
         RespValue::Integer(ref o) => o.to_string(),
         RespValue::SimpleString(ref o) => o.to_string(),
-    }
-}
-
-struct Slots {
-    start: u16,
-    end: u16,
-    master_addr: String,
-}
-
-impl std::fmt::Debug for Slots {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.debug_struct("Slots")
-            .field("start", &self.start)
-            .field("end", &self.end)
-            .field("master_addr", &self.master_addr)
-            .finish()
     }
 }
 
@@ -66,21 +49,10 @@ impl RedisClusterActor {
             .entry(addr.clone())
             .or_insert_with(move || RedisActor::start(addr));
 
-        Box::new(control_connection.send(ClusterSlots).then(|res| {
-            match res {
-                Ok(Ok(res)) => Ok(res
-                    .into_iter()
-                    .filter_map(|(start, end, addrs)| {
-                        addrs.into_iter().next().map(|master_addr| Slots {
-                            start,
-                            end,
-                            master_addr,
-                        })
-                    })
-                    .collect::<Vec<_>>()),
-                Ok(Err(e)) => Err(e),
-                Err(_canceled) => Err(Error::Disconnected),
-            }
+        Box::new(control_connection.send(ClusterSlots).then(|res| match res {
+            Ok(Ok(slots)) => Ok(slots),
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(Error::Disconnected),
         }))
     }
 }
@@ -95,9 +67,9 @@ impl Actor for RedisClusterActor {
                 Ok(slots) => {
                     for slots in slots.iter() {
                         this.connections
-                            .entry(slots.master_addr.clone())
+                            .entry(slots.master().to_string())
                             .or_insert_with(|| {
-                                RedisActor::start(slots.master_addr.clone())
+                                RedisActor::start(slots.master().clone())
                             });
                     }
                     this.slots = slots;
@@ -256,7 +228,7 @@ where
                     if slots.start <= slot && slot <= slots.end {
                         return actix::Handler::handle(
                             self,
-                            Retry::new(slots.master_addr.clone(), req, 0),
+                            Retry::new(slots.master().to_string(), req, 0),
                             ctx,
                         );
                     }
