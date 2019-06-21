@@ -772,3 +772,274 @@ impl Command for EvalSha {
         Ok(())
     }
 }
+
+pub struct ClusterAddSlots {
+    pub slots: Vec<u16>,
+    pub target_node_slot: u16,
+}
+
+impl Message for ClusterAddSlots {
+    type Result = Result<(), Error>;
+}
+
+impl Command for ClusterAddSlots {
+    type Output = ();
+
+    fn into_request(self) -> RespValue {
+        let mut v = vec!["CLUSTER".into(), "ADDSLOTS".into()];
+        v.extend(self.slots.into_iter().map(|x| x.to_string().into()));
+        RespValue::Array(v)
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(ref s) if s == "OK" => Ok(()),
+            _ => Err(RespError::RESP(
+                "invalid response for CLUSTER ADDSLOTS".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.target_node_slot)
+    }
+}
+
+pub struct ClusterDelSlots {
+    pub slots: Vec<u16>,
+    pub target_node_slot: u16,
+}
+
+impl Message for ClusterDelSlots {
+    type Result = Result<(), Error>;
+}
+
+impl Command for ClusterDelSlots {
+    type Output = ();
+
+    fn into_request(self) -> RespValue {
+        let mut v = vec!["CLUSTER".into(), "DELSLOTS".into()];
+        v.extend(self.slots.into_iter().map(|x| x.to_string().into()));
+        RespValue::Array(v)
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(ref s) if s == "OK" => Ok(()),
+            _ => Err(RespError::RESP(
+                "invalid response for CLUSTER DELSLOTS".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.target_node_slot)
+    }
+}
+
+pub enum ClusterSetSlot {
+    Migrating {
+        slot: u16,
+        destination_id: String,
+        target_node_slot: u16,
+    },
+    Importing {
+        slot: u16,
+        source_id: String,
+        target_node_slot: u16,
+    },
+    Stable {
+        slot: u16,
+        target_node_slot: u16,
+    },
+    Node {
+        slot: u16,
+        node_id: String,
+        target_node_slot: u16,
+    },
+}
+
+impl Message for ClusterSetSlot {
+    type Result = Result<(), Error>;
+}
+
+impl Command for ClusterSetSlot {
+    type Output = ();
+
+    fn into_request(self) -> RespValue {
+        use ClusterSetSlot::*;
+
+        match self {
+            Migrating {
+                slot,
+                destination_id,
+                ..
+            } => resp_array![
+                "CLUSTER",
+                "SETSLOT",
+                slot.to_string(),
+                "MIGRATING",
+                destination_id
+            ],
+            Importing {
+                slot, source_id, ..
+            } => resp_array![
+                "CLUSTER",
+                "SETSLOT",
+                slot.to_string(),
+                "IMPORTING",
+                source_id
+            ],
+            Stable { slot, .. } => {
+                resp_array!["CLUSTER", "SETSLOT", slot.to_string(), "STABLE"]
+            }
+            Node { slot, node_id, .. } => {
+                resp_array!["CLUSTER", "SETSLOT", slot.to_string(), "NODE", node_id]
+            }
+        }
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(ref s) if s == "OK" => Ok(()),
+            _ => Err(RespError::RESP(
+                "invalid response for CLUSTER SETSLOT".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        use ClusterSetSlot::*;
+
+        match self {
+            Migrating {
+                target_node_slot, ..
+            }
+            | Importing {
+                target_node_slot, ..
+            }
+            | Stable {
+                target_node_slot, ..
+            }
+            | Node {
+                target_node_slot, ..
+            } => hasher.set(*target_node_slot),
+        }
+    }
+}
+
+pub struct ClusterCountKeysInSlot {
+    pub slot: u16,
+    pub target_node_slot: u16,
+}
+
+impl Message for ClusterCountKeysInSlot {
+    type Result = Result<usize, Error>;
+}
+
+impl Command for ClusterCountKeysInSlot {
+    type Output = usize;
+
+    fn into_request(self) -> RespValue {
+        resp_array!["CLUSTER", "COUNTKEYSINSLOT", self.slot.to_string()]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::Integer(v) if v >= 0 => Ok(v as usize),
+            _ => Err(RespError::RESP(
+                "invalid response for CLUSTER COUNTKEYSINSLOT".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.target_node_slot)
+    }
+}
+
+pub struct ClusterGetKeysInSlot {
+    pub slot: u16,
+    pub count: usize,
+    pub target_node_slot: u16,
+}
+
+impl Message for ClusterGetKeysInSlot {
+    type Result = Result<Vec<String>, Error>;
+}
+
+impl Command for ClusterGetKeysInSlot {
+    type Output = Vec<String>;
+
+    fn into_request(self) -> RespValue {
+        resp_array![
+            "CLUSTER",
+            "GETKEYSINSLOT",
+            self.slot.to_string(),
+            self.count.to_string()
+        ]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        use redis_async::resp::FromResp;
+
+        match res {
+            RespValue::Array(v) => v.into_iter().map(String::from_resp).collect(),
+            _ => Err(RespError::RESP(
+                "invalid response for CLUSTER GETKEYSINSLOT".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.target_node_slot)
+    }
+}
+
+pub struct Migrate {
+    pub host: String,
+    pub port: usize,
+    pub key: String,
+    pub db: usize,
+    pub timeout: usize,
+    pub target_node_slot: u16,
+}
+
+impl Message for Migrate {
+    type Result = Result<bool, Error>;
+}
+
+impl Command for Migrate {
+    type Output = bool;
+
+    fn into_request(self) -> RespValue {
+        resp_array![
+            "MIGRATE",
+            self.host,
+            self.port.to_string(),
+            self.key,
+            self.db.to_string(),
+            self.timeout.to_string()
+        ]
+    }
+
+    fn from_response(res: RespValue) -> Result<Self::Output, RespError> {
+        match res {
+            RespValue::SimpleString(ref s) if s == "OK" => Ok(true),
+            RespValue::SimpleString(ref s) if s == "NOKEY" => Ok(false),
+            _ => Err(RespError::RESP(
+                "invalid response for MIGRATE".into(),
+                Some(res),
+            )),
+        }
+    }
+
+    fn hash_keys(&self, hasher: &mut Hasher) -> Result<(), HashError> {
+        hasher.set(self.target_node_slot)
+    }
+}

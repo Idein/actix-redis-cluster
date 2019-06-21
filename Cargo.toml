@@ -50,3 +50,4 @@ serde_json = { version="1.0", optional=true }
 
 [dev-dependencies]
 env_logger = "0.5"
+tokio-timer = "0.2.11"

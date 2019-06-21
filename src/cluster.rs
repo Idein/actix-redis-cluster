@@ -42,18 +42,41 @@ impl RedisClusterActor {
         })
     }
 
-    fn refresh_slots(&mut self) -> ResponseFuture<Vec<Slots>, Error> {
+    fn refresh_slots(&mut self) -> ResponseActFuture<Self, (), ()> {
         let addr = self.initial_addr.clone();
         let control_connection = self
             .connections
             .entry(addr.clone())
             .or_insert_with(move || RedisActor::start(addr));
 
-        Box::new(control_connection.send(ClusterSlots).then(|res| match res {
-            Ok(Ok(slots)) => Ok(slots),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(Error::Disconnected),
-        }))
+        Box::new(
+            control_connection
+                .send(ClusterSlots)
+                .then(|res| match res {
+                    Ok(Ok(slots)) => Ok(slots),
+                    Ok(Err(e)) => Err(e),
+                    Err(_) => Err(Error::Disconnected),
+                })
+                .into_actor(self)
+                .then(|res, this, _ctx| match res {
+                    Ok(slots) => {
+                        for slots in slots.iter() {
+                            this.connections
+                                .entry(slots.master().to_string())
+                                .or_insert_with(|| {
+                                    RedisActor::start(slots.master().clone())
+                                });
+                        }
+                        this.slots = slots;
+                        debug!("slots: {:?}", this.slots);
+                        actix::fut::ok(())
+                    }
+                    Err(e) => {
+                        warn!("refreshing slots failed: {:?}", e);
+                        actix::fut::err(())
+                    }
+                }),
+        )
     }
 }
 
@@ -61,27 +84,8 @@ impl Actor for RedisClusterActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        // TODO: does this solve the issue (#1?)?
-        ctx.wait(self.refresh_slots().into_actor(self).then(
-            |res, this, _ctx| match res {
-                Ok(slots) => {
-                    for slots in slots.iter() {
-                        this.connections
-                            .entry(slots.master().to_string())
-                            .or_insert_with(|| {
-                                RedisActor::start(slots.master().clone())
-                            });
-                    }
-                    this.slots = slots;
-                    debug!("slots: {:?}", this.slots);
-                    actix::fut::ok(())
-                }
-                Err(e) => {
-                    warn!("refreshing slots failed: {:?}", e);
-                    actix::fut::err(())
-                }
-            },
-        ));
+        // TODO: does this wait prevent the issue (#1?)?
+        ctx.wait(self.refresh_slots());
     }
 }
 
@@ -121,6 +125,13 @@ impl Handler<Retry> for RedisClusterActor {
         ) -> ResponseActFuture<RedisClusterActor, RespValue, Error> {
             use actix::fut::{err, ok};
 
+            debug!(
+                "processing: req = {}, addr = {}, retry = {}",
+                fmt_resp_value(&req),
+                addr,
+                retry
+            );
+
             let connection = this
                 .connections
                 .entry(addr.clone())
@@ -129,75 +140,76 @@ impl Handler<Retry> for RedisClusterActor {
                 connection
                     .send(RespValueWrapper(req.clone()))
                     .into_actor(this)
-                    .then(move |res, this, ctx| match res {
-                        Ok(Ok(RespValue::Error(ref e)))
-                            if e.starts_with("MOVED") && retry < MAX_RETRY =>
-                        {
-                            info!(
-                                "MOVED redirection: retry = {}, request = {}",
-                                retry,
-                                fmt_resp_value(&req)
-                            );
+                    .then(move |res, this, ctx| {
+                        debug!(
+                            "received: {:?}",
+                            res.as_ref().map(|res| res.as_ref().map(fmt_resp_value))
+                        );
+                        match res {
+                            Ok(Ok(RespValue::Error(ref e)))
+                                if e.starts_with("MOVED") && retry < MAX_RETRY =>
+                            {
+                                info!(
+                                    "MOVED redirection: retry = {}, request = {}",
+                                    retry,
+                                    fmt_resp_value(&req)
+                                );
 
-                            let mut values = e.split(' ');
-                            let _moved = values.next().unwrap();
-                            let _slot = values.next().unwrap();
-                            let addr = values.next().unwrap();
+                                let mut values = e.split(' ');
+                                let _moved = values.next().unwrap();
+                                let _slot = values.next().unwrap();
+                                let addr = values.next().unwrap();
 
-                            // TODO: refresh slots
+                                ctx.wait(this.refresh_slots());
 
-                            do_retry(this, addr.to_string(), req, retry + 1)
+                                do_retry(this, addr.to_string(), req, retry + 1)
+                            }
+                            Ok(Ok(RespValue::Error(ref e)))
+                                if e.starts_with("ASK") && retry < MAX_RETRY =>
+                            {
+                                info!(
+                                    "ASK redirection: retry = {}, request = {}",
+                                    retry,
+                                    fmt_resp_value(&req)
+                                );
+
+                                let mut values = e.split(' ');
+                                let _moved = values.next().unwrap();
+                                let _slot = values.next().unwrap();
+                                let addr = values.next().unwrap();
+
+                                ctx.spawn(
+                                    // No retry for ASKING
+                                    do_retry(
+                                        this,
+                                        addr.to_string(),
+                                        Asking.into_request(),
+                                        MAX_RETRY,
+                                    )
+                                    .then(
+                                        |res, _this, _ctx| {
+                                            match res.map(Asking::from_response) {
+                                                Ok(Ok(())) => {}
+                                                e => warn!(
+                                                    "failed to issue ASKING: {:?}",
+                                                    e
+                                                ),
+                                            };
+                                            ok(())
+                                        },
+                                    ),
+                                );
+
+                                do_retry(this, addr.to_string(), req, retry + 1)
+                            }
+                            Ok(Ok(res)) => Box::new(ok(res)),
+                            Ok(Err(e)) => Box::new(err(e)),
+                            Err(_canceled) => Box::new(err(Error::Disconnected)),
                         }
-                        Ok(Ok(RespValue::Error(ref e)))
-                            if e.starts_with("ASK") && retry < MAX_RETRY =>
-                        {
-                            info!(
-                                "ASK redirection: retry = {}, request = {}",
-                                retry,
-                                fmt_resp_value(&req)
-                            );
-
-                            let mut values = e.split(' ');
-                            let _moved = values.next().unwrap();
-                            let _slot = values.next().unwrap();
-                            let addr = values.next().unwrap();
-
-                            ctx.spawn(
-                                // No retry for ASKING
-                                do_retry(
-                                    this,
-                                    addr.to_string(),
-                                    Asking.into_request(),
-                                    MAX_RETRY,
-                                )
-                                .then(
-                                    |res, _this, _ctx| {
-                                        match res.map(Asking::from_response) {
-                                            Ok(Ok(())) => {}
-                                            e => {
-                                                warn!("failed to issue ASKING: {:?}", e)
-                                            }
-                                        };
-                                        ok(())
-                                    },
-                                ),
-                            );
-
-                            do_retry(this, addr.to_string(), req, retry + 1)
-                        }
-                        Ok(Ok(res)) => Box::new(ok(res)),
-                        Ok(Err(e)) => Box::new(err(e)),
-                        Err(_canceled) => Box::new(err(Error::Disconnected)),
                     }),
             )
         }
 
-        debug!(
-            "processing: req = {}, addr = {}, retry = {}",
-            fmt_resp_value(&msg.req),
-            msg.addr,
-            msg.retry
-        );
         do_retry(self, msg.addr, msg.req, msg.retry)
     }
 }
