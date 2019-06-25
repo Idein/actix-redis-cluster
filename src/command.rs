@@ -532,7 +532,7 @@ impl Command for DecrBy {
 }
 
 #[derive(Debug)]
-pub struct Ping(Option<String>);
+pub struct Ping(pub Option<String>);
 
 impl Message for Ping {
     type Result = Result<String, Error>;
