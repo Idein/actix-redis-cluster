@@ -14,4 +14,4 @@ jobs:
       - checkout
       - run: rustup component add rustfmt
       - run: cargo fmt -- --check
-      - run: cargo test --verbose
+      - run: cargo test -j 1 --verbose
