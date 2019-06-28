@@ -238,9 +238,10 @@ where
             Some(slot) => {
                 for slots in self.slots.iter() {
                     if slots.start <= slot && slot <= slots.end {
+                        let addr = slots.master().to_string();
                         return actix::Handler::handle(
                             self,
-                            Retry::new(slots.master().to_string(), req, 0),
+                            Retry::new(addr, req, 0),
                             ctx,
                         );
                     }
