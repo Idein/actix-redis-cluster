@@ -3,7 +3,7 @@ use actix_redis::{command::*, RedisClusterActor};
 use futures::Future;
 
 #[test]
-fn test_cluster() {
+fn test_cluster() -> std::io::Result<()> {
     env_logger::init();
     let sys = System::new("test");
 
@@ -31,5 +31,5 @@ fn test_cluster() {
         })
     });
 
-    sys.run();
+    sys.run()
 }

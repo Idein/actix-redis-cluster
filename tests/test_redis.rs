@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate redis_async;
 
 use actix::prelude::*;

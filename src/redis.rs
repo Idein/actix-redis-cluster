@@ -154,7 +154,8 @@ impl Handler<RespValueWrapper> for RedisActor {
 
 impl<M> Handler<M> for RedisActor
 where
-    M: command::Command + Message<Result = Result<<M as command::Command>::Output, Error>>,
+    M: command::Command
+        + Message<Result = Result<<M as command::Command>::Output, Error>>,
     <M as command::Command>::Output: Send + 'static,
 {
     type Result = ResponseFuture<M::Output, Error>;

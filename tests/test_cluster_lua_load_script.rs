@@ -3,7 +3,7 @@ use actix_redis::{command::*, RedisClusterActor};
 use futures::Future;
 
 #[test]
-fn test_cluster_lua_load_script() {
+fn test_cluster_lua_load_script() -> std::io::Result<()> {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
@@ -37,5 +37,5 @@ fn test_cluster_lua_load_script() {
         })
     });
 
-    sys.run();
+    sys.run()
 }

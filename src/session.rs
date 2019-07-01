@@ -15,7 +15,7 @@ use futures::Poll;
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use time::Duration;
 
-use crate::command::{self, Get, Set, Expiration};
+use crate::command::{self, Expiration, Get, Set};
 use crate::redis::RedisActor;
 use crate::RedisClusterActor;
 

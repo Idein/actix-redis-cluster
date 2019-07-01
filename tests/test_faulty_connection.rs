@@ -5,7 +5,7 @@ use futures::Future;
 
 // test whether RedisActor will eventually reconnects to Redis server
 #[test]
-fn test_faulty_connection() {
+fn test_faulty_connection() -> std::io::Result<()> {
     env_logger::init();
     let sys = System::new("test-faulty-connection");
 
@@ -35,5 +35,5 @@ fn test_faulty_connection() {
         .map(|()| System::current().stop())
     });
 
-    sys.run();
+    sys.run()
 }
