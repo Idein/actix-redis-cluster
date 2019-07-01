@@ -1,9 +1,12 @@
+#[macro_use]
+extern crate redis_async;
+
 use actix::prelude::*;
 use actix_redis::{command::*, Error, RedisActor};
 use futures::Future;
 
 #[test]
-fn test_error_connect() {
+fn test_error_connect() -> std::io::Result<()> {
     let sys = System::new("test");
 
     let addr = RedisActor::start("localhost:54000");
@@ -20,11 +23,11 @@ fn test_error_connect() {
         })
     });
 
-    sys.run();
+    sys.run()
 }
 
 #[test]
-fn test_redis() {
+fn test_redis() -> std::io::Result<()> {
     env_logger::init();
     let sys = System::new("test");
 
@@ -53,5 +56,5 @@ fn test_redis() {
         })
     });
 
-    sys.run();
+    sys.run()
 }
