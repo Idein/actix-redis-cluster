@@ -3,11 +3,9 @@ use std::iter;
 use std::rc::Rc;
 
 use actix::prelude::*;
-use actix_service::{Service, Transform};
 use actix_session::Session;
-use actix_utils::cloneable::CloneableService;
 use actix_web::cookie::{Cookie, CookieJar, Key, SameSite};
-use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::header::{self, HeaderValue};
 use actix_web::{error, Error, HttpMessage};
 use futures::future::{err, ok, Either, Future, FutureResult};
@@ -26,6 +24,7 @@ use crate::RedisClusterActor;
 /// session, When this value is changed, all session data is lost.
 ///
 /// Constructor panics if key length is less than 32 bytes.
+#[derive(Clone)]
 pub struct RedisSession(Rc<Inner>);
 
 impl RedisSession {
@@ -111,6 +110,7 @@ impl RedisSession {
 impl<S, B> Transform<S> for RedisSession
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>
+        + Clone
         + 'static,
     S::Future: 'static,
     B: 'static,
@@ -124,21 +124,23 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ok(RedisSessionMiddleware {
-            service: CloneableService::new(service),
+            service,
             inner: self.0.clone(),
         })
     }
 }
 
 /// Cookie session middleware
-pub struct RedisSessionMiddleware<S: 'static> {
-    service: CloneableService<S>,
+#[derive(Clone)]
+pub struct RedisSessionMiddleware<S: Service + 'static> {
+    service: S,
     inner: Rc<Inner>,
 }
 
 impl<S, B> Service for RedisSessionMiddleware<S>
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>
+        + Clone
         + 'static,
     S::Future: 'static,
     B: 'static,
@@ -165,7 +167,7 @@ where
             };
 
             srv.call(req).and_then(move |mut res| {
-                if let Some(state) = Session::get_changes(&mut res) {
+                if let (_status, Some(state)) = Session::get_changes(&mut res) {
                     Either::A(inner.update(res, state, value))
                 } else {
                     Either::B(ok(res))
@@ -264,9 +266,8 @@ impl Inner {
         let (value, jar) = if let Some(value) = value {
             (value.clone(), None)
         } else {
-            let mut rng = OsRng::new().unwrap();
             let value: String = iter::repeat(())
-                .map(|()| rng.sample(Alphanumeric))
+                .map(|()| OsRng.sample(Alphanumeric))
                 .take(32)
                 .collect();
 
