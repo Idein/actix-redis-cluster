@@ -44,7 +44,7 @@ impl RedisActor {
         Supervisor::start(|_| RedisActor {
             addr,
             cell: None,
-            backoff: backoff,
+            backoff,
             queue: VecDeque::new(),
         })
     }
