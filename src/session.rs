@@ -1,13 +1,12 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter;
 use std::rc::Rc;
 
 use actix::prelude::*;
-use actix_service::{Service, Transform};
 use actix_session::Session;
-use actix_utils::cloneable::CloneableService;
 use actix_web::cookie::{Cookie, CookieJar, Key, SameSite};
-use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::header::{self, HeaderValue};
 use actix_web::{error, Error, HttpMessage};
 use futures::future::{err, ok, Either, Future, FutureResult};
@@ -26,6 +25,7 @@ use crate::RedisClusterActor;
 /// session, When this value is changed, all session data is lost.
 ///
 /// Constructor panics if key length is less than 32 bytes.
+#[derive(Clone)]
 pub struct RedisSession(Rc<Inner>);
 
 impl RedisSession {
@@ -124,15 +124,16 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ok(RedisSessionMiddleware {
-            service: CloneableService::new(service),
+            service: Rc::new(RefCell::new(service)),
             inner: self.0.clone(),
         })
     }
 }
 
 /// Cookie session middleware
-pub struct RedisSessionMiddleware<S: 'static> {
-    service: CloneableService<S>,
+#[derive(Clone)]
+pub struct RedisSessionMiddleware<S: Service + 'static> {
+    service: Rc<RefCell<S>>,
     inner: Rc<Inner>,
 }
 
@@ -146,7 +147,7 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
     fn poll_ready(&mut self) -> Poll<(), Self::Error> {
         self.service.poll_ready()
@@ -165,7 +166,7 @@ where
             };
 
             srv.call(req).and_then(move |mut res| {
-                if let Some(state) = Session::get_changes(&mut res) {
+                if let (_status, Some(state)) = Session::get_changes(&mut res) {
                     Either::A(inner.update(res, state, value))
                 } else {
                     Either::B(ok(res))
@@ -264,9 +265,8 @@ impl Inner {
         let (value, jar) = if let Some(value) = value {
             (value.clone(), None)
         } else {
-            let mut rng = OsRng::new().unwrap();
             let value: String = iter::repeat(())
-                .map(|()| rng.sample(Alphanumeric))
+                .map(|()| OsRng.sample(Alphanumeric))
                 .take(32)
                 .collect();
 
