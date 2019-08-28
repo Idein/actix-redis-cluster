@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter;
 use std::rc::Rc;
@@ -110,7 +111,6 @@ impl RedisSession {
 impl<S, B> Transform<S> for RedisSession
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>
-        + Clone
         + 'static,
     S::Future: 'static,
     B: 'static,
@@ -124,7 +124,7 @@ where
 
     fn new_transform(&self, service: S) -> Self::Future {
         ok(RedisSessionMiddleware {
-            service,
+            service: Rc::new(RefCell::new(service)),
             inner: self.0.clone(),
         })
     }
@@ -133,14 +133,13 @@ where
 /// Cookie session middleware
 #[derive(Clone)]
 pub struct RedisSessionMiddleware<S: Service + 'static> {
-    service: S,
+    service: Rc<RefCell<S>>,
     inner: Rc<Inner>,
 }
 
 impl<S, B> Service for RedisSessionMiddleware<S>
 where
     S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>
-        + Clone
         + 'static,
     S::Future: 'static,
     B: 'static,
