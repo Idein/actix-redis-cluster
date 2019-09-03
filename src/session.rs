@@ -74,10 +74,18 @@ impl RedisSessionBackend {
     ///
     /// * `addr` - address of the redis server
     pub fn new<S: Into<String>>(addr: S, key: &[u8]) -> RedisSessionBackend {
+        let redis_addr = RedisActor::start(addr);
+        Self::from_redis(redis_addr, key)
+    }
+
+    /// Create new redis session backend
+    ///
+    /// * `addr` - address of the redis actor
+    pub fn from_redis(addr: Addr<RedisActor>, key: &[u8]) -> RedisSessionBackend {
         RedisSessionBackend(Rc::new(Inner {
             key: Key::from_master(key),
             ttl: "7200".to_owned(),
-            addr: Redis::Redis(RedisActor::start(addr)),
+            addr: Redis::Redis(addr),
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
             domain: None,
@@ -91,10 +99,18 @@ impl RedisSessionBackend {
     ///
     /// * `addrs` - addresses of the redis masters
     pub fn new_cluster<S: Into<String>>(addr: S, key: &[u8]) -> RedisSessionBackend {
+        let redis_addr = RedisClusterActor::start(addr);
+        Self::from_cluster(redis_addr, key)
+    }
+
+    /// Create new redis session backend from redis cluster
+    ///
+    /// * `addrs` - addresses of the redis cluster actor
+    pub fn from_cluster(addr: Addr<RedisClusterActor>, key: &[u8]) -> RedisSessionBackend {
         RedisSessionBackend(Rc::new(Inner {
             key: Key::from_master(key),
             ttl: "7200".to_owned(),
-            addr: Redis::RedisCluster(RedisClusterActor::start(addr)),
+            addr: Redis::RedisCluster(addr),
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
             domain: None,
