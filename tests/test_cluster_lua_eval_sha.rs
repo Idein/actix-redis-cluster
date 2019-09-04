@@ -3,7 +3,7 @@ use actix_redis::{command::*, RedisClusterActor, RespValue};
 use futures::Future;
 
 #[test]
-fn test_cluster_lua_eval_sha() {
+fn test_cluster_lua_eval_sha() -> std::io::Result<()> {
     let _ = env_logger::try_init();
     let sys = System::new("test");
 
@@ -35,5 +35,5 @@ fn test_cluster_lua_eval_sha() {
         })
     });
 
-    sys.run();
+    sys.run()
 }

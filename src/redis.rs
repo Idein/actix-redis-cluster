@@ -14,8 +14,16 @@ use tokio_io::io::WriteHalf;
 use tokio_io::AsyncRead;
 use tokio_tcp::TcpStream;
 
-use crate::command::*;
+use crate::command;
 use crate::Error;
+
+/// Command for send data to Redis
+#[derive(Debug)]
+pub struct Command(pub RespValue);
+
+impl Message for Command {
+    type Result = Result<RespValue, Error>;
+}
 
 /// Redis comminucation actor
 pub struct RedisActor {
@@ -36,7 +44,7 @@ impl RedisActor {
         Supervisor::start(|_| RedisActor {
             addr,
             cell: None,
-            backoff: backoff,
+            backoff,
             queue: VecDeque::new(),
         })
     }
@@ -146,8 +154,9 @@ impl Handler<RespValueWrapper> for RedisActor {
 
 impl<M> Handler<M> for RedisActor
 where
-    M: Command + Message<Result = Result<<M as Command>::Output, Error>>,
-    <M as Command>::Output: Send + 'static,
+    M: command::Command
+        + Message<Result = Result<<M as command::Command>::Output, Error>>,
+    <M as command::Command>::Output: Send + 'static,
 {
     type Result = ResponseFuture<M::Output, Error>;
 

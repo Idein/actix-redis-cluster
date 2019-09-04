@@ -6,7 +6,7 @@ use tokio_timer::sleep;
 use std::time::Duration;
 
 #[test]
-fn test_cluster_moved() {
+fn test_cluster_moved() -> std::io::Result<()> {
     env_logger::init();
     let sys = System::new("test-moved");
 
@@ -184,5 +184,5 @@ fn test_cluster_moved() {
             .map_err(|e| panic!("Should not happen {:?}", e))
     });
 
-    sys.run();
+    sys.run()
 }
