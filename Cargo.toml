@@ -54,4 +54,4 @@ actix-http = "0.2.10"
 
 [dev-dependencies]
 env_logger = "0.6"
-tokio-timer = "0.2.11"
+tokio-timer = "0.2"
