@@ -2,9 +2,9 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/rust:1.35
+      - image: circleci/rust:1.39
       - image: idein/redis-blackout
-      - image: grokzen/redis-cluster:5.0.5
+      - image: grokzen/redis-cluster
         environment:
           IP: "127.0.0.1"
           SENTINEL: "false"
