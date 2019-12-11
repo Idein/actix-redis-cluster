@@ -4,6 +4,8 @@ use futures::future::{loop_fn, Loop};
 use futures::Future;
 
 // test whether RedisActor will eventually reconnects to Redis server
+// TODO: we need to stop toxiproxy *after* a client connected. call REST API?
+#[ignore]
 #[test]
 fn test_faulty_connection() -> std::io::Result<()> {
     env_logger::init();
