@@ -140,7 +140,7 @@ impl Handler<Command> for RedisActor {
             let _ = tx.send(Err(Error::NotConnected));
         }
 
-        Box::new(rx.map(|res| match res {
+        Box::pin(rx.map(|res| match res {
             Ok(res) => res,
             Err(_) => Err(Error::Disconnected),
         }))
@@ -156,7 +156,7 @@ where
     type Result = ResponseFuture<Result<M::Output, Error>>;
 
     fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
-        Box::new(
+        Box::pin(
             Handler::handle(self, Command(msg.into_request()), ctx).map(|res| {
                 res.and_then(|res| M::from_response(res).map_err(Error::Redis))
             }),

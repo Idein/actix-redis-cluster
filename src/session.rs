@@ -10,7 +10,7 @@ use actix_web::cookie::{Cookie, CookieJar, Key, SameSite};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::http::header::{self, HeaderValue};
 use actix_web::{error, Error, HttpMessage};
-use futures::future::{err, ok, Either, Future, FutureExt, Ready, TryFutureExt};
+use futures::future::{ok, Future, Ready};
 use rand::{distributions::Alphanumeric, rngs::OsRng, Rng};
 use time::{self, Duration};
 
@@ -264,18 +264,17 @@ impl Redis {
         use self::Redis::*;
 
         match self {
-            Redis(addr) => Box::new(addr.send(msg)),
-            RedisCluster(addr) => Box::new(addr.send(msg)),
+            Redis(addr) => Box::pin(addr.send(msg)),
+            RedisCluster(addr) => Box::pin(addr.send(msg)),
         }
     }
 }
 
 impl Inner {
-    fn load(
+    async fn load(
         &self,
         req: &ServiceRequest,
-    ) -> impl Future<Output = Result<Option<(HashMap<String, String>, String)>, Error>>
-    {
+    ) -> Result<Option<(HashMap<String, String>, String)>, Error> {
         if let Ok(cookies) = req.cookies() {
             for cookie in cookies.iter() {
                 if cookie.name() == self.name {
@@ -284,40 +283,43 @@ impl Inner {
                     if let Some(cookie) = jar.signed(&self.key).get(&self.name) {
                         let value = cookie.value().to_owned();
                         let cachekey = (self.cache_keygen)(&cookie.value());
-                        return Either::Left(
-                            self.addr.send(Get { key: cachekey }).err_into().map(
-                                move |res| {
-                                    res.and_then(|res| match res {
-                                        Ok(Some(s)) => {
+                        return match self
+                            .addr
+                            .send(Get { key: cachekey })
+                            .await
+                        {
+                            Err(e) => Err(Error::from(e)),
+                            Ok(res) => match res {
+                                Ok(val) => {
+                                    match val {
+                                        Some(s) => {
                                             if let Ok(val) = serde_json::from_slice(&s) {
                                                 Ok(Some((val, value)))
                                             } else {
                                                 Ok(None)
                                             }
                                         }
-                                        Ok(None) => Ok(None),
-                                        Err(err) => {
-                                            Err(error::ErrorInternalServerError(err))
-                                        }
-                                    })
-                                },
-                            ),
-                        );
+                                        None => Ok(None),
+                                    }
+                                }
+                                Err(err) => Err(error::ErrorInternalServerError(err)),
+                            },
+                        };
                     } else {
-                        return Either::Right(ok(None));
+                        return Ok(None);
                     }
                 }
             }
         }
-        Either::Right(ok(None))
+        Ok(None)
     }
 
-    fn update<B>(
+    async fn update<B>(
         &self,
         mut res: ServiceResponse<B>,
         state: impl Iterator<Item = (String, String)>,
         value: Option<String>,
-    ) -> impl Future<Output = Result<ServiceResponse<B>, Error>> {
+    ) -> Result<ServiceResponse<B>, Error> {
         let (value, jar) = if let Some(value) = value {
             (value.clone(), None)
         } else {
@@ -355,58 +357,54 @@ impl Inner {
 
         let state: HashMap<_, _> = state.collect();
         match serde_json::to_string(&state) {
-            Err(e) => Either::Left(err(e.into())),
-            Ok(body) => Either::Right(
-                self.addr
+            Err(e) => Err(e.into()),
+            Ok(body) => {
+                match self
+                    .addr
                     .send(Set {
                         key: cachekey,
                         value: body,
                         expiration: Expiration::Ex(self.ttl.clone()),
                     })
-                    .map_err(Error::from)
-                    .and_then(move |redis_result| {
-                        async {
-                            match redis_result {
-                                Ok(_) => {
-                                    if let Some(jar) = jar {
-                                        for cookie in jar.delta() {
-                                            let val = HeaderValue::from_str(
-                                                &cookie.to_string(),
-                                            )?;
-                                            res.headers_mut()
-                                                .append(header::SET_COOKIE, val);
-                                        }
-                                    }
-                                    Ok(res)
+                    .await
+                {
+                    Err(e) => Err(Error::from(e)),
+                    Ok(redis_result) => match redis_result {
+                        Ok(()) => {
+                            if let Some(jar) = jar {
+                                for cookie in jar.delta() {
+                                    let val =
+                                        HeaderValue::from_str(&cookie.to_string())?;
+                                    res.headers_mut().append(header::SET_COOKIE, val);
                                 }
-                                Err(err) => Err(error::ErrorInternalServerError(err)),
                             }
+                            Ok(res)
                         }
-                    }),
-            ),
+                        Err(err) => Err(error::ErrorInternalServerError(err)),
+                    },
+                }
+            }
         }
     }
 
     /// removes cache entry
-    fn clear_cache(&self, key: String) -> impl Future<Output = Result<(), Error>> {
+    async fn clear_cache(&self, key: String) -> Result<(), Error> {
         let cachekey = (self.cache_keygen)(&key);
 
-        self.addr
-            .send(Del {
+        match self.addr.send(Del {
                 keys: vec![cachekey],
-            })
-            .map_err(Error::from)
-            .map(|res| {
-                res.and_then(|res| {
-                    match res {
-                        // redis responds with number of deleted records
-                        Ok(x) if x > 0 => Ok(()),
-                        _ => Err(error::ErrorInternalServerError(
-                            "failed to remove session from cache",
-                        )),
-                    }
-                })
-            })
+            }).await {
+            Err(e) => Err(Error::from(e)),
+            Ok(res) => {
+                match res {
+                    // redis responds with number of deleted records
+                    Ok(x) if x > 0 => Ok(()),
+                    _ => Err(error::ErrorInternalServerError(
+                        "failed to remove session from cache",
+                    )),
+                }
+            }
+        }
     }
 
     /// invalidates session cookie
