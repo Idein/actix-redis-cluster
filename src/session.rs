@@ -283,25 +283,19 @@ impl Inner {
                     if let Some(cookie) = jar.signed(&self.key).get(&self.name) {
                         let value = cookie.value().to_owned();
                         let cachekey = (self.cache_keygen)(&cookie.value());
-                        return match self
-                            .addr
-                            .send(Get { key: cachekey })
-                            .await
-                        {
+                        return match self.addr.send(Get { key: cachekey }).await {
                             Err(e) => Err(Error::from(e)),
                             Ok(res) => match res {
-                                Ok(val) => {
-                                    match val {
-                                        Some(s) => {
-                                            if let Ok(val) = serde_json::from_slice(&s) {
-                                                Ok(Some((val, value)))
-                                            } else {
-                                                Ok(None)
-                                            }
+                                Ok(val) => match val {
+                                    Some(s) => {
+                                        if let Ok(val) = serde_json::from_slice(&s) {
+                                            Ok(Some((val, value)))
+                                        } else {
+                                            Ok(None)
                                         }
-                                        None => Ok(None),
                                     }
-                                }
+                                    None => Ok(None),
+                                },
                                 Err(err) => Err(error::ErrorInternalServerError(err)),
                             },
                         };
@@ -391,9 +385,13 @@ impl Inner {
     async fn clear_cache(&self, key: String) -> Result<(), Error> {
         let cachekey = (self.cache_keygen)(&key);
 
-        match self.addr.send(Del {
+        match self
+            .addr
+            .send(Del {
                 keys: vec![cachekey],
-            }).await {
+            })
+            .await
+        {
             Err(e) => Err(Error::from(e)),
             Ok(res) => {
                 match res {

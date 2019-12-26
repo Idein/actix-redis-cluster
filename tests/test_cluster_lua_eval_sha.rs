@@ -1,39 +1,36 @@
-use actix::prelude::*;
 use actix_redis::{command::*, RedisClusterActor, RespValue};
-use futures::Future;
 
-#[test]
-fn test_cluster_lua_eval_sha() -> std::io::Result<()> {
-    let _ = env_logger::try_init();
-    let sys = System::new("test");
+#[actix_rt::test]
+async fn test_cluster_lua_eval_sha() {
+    env_logger::init();
 
     let addr = RedisClusterActor::start("127.0.0.1:7000");
 
-    Arbiter::spawn_fn(move || {
-        addr.send(ScriptLoad {
+    let res = addr
+        .send(ScriptLoad {
             script: r#"
-                redis.call('SET', KEYS[1], ARGV[1])
-                return tonumber(redis.call('GET', KEYS[2]))
-                "#,
+            redis.call('SET', KEYS[1], ARGV[1])
+            return tonumber(redis.call('GET', KEYS[2]))
+            "#,
             slot: 15206, //slot of "actix"
         })
-        .then(move |res| match res {
-            Ok(Ok(hash)) => addr
+        .await;
+
+    match res {
+        Ok(Ok(hash)) => {
+            let res = addr
                 .send(EvalSha {
-                    hash: hash,
+                    hash,
                     keys: vec!["actix".into(), "actix".into()],
                     args: vec!["21".into()],
                 })
-                .then(move |res| match &res {
-                    Ok(Ok(RespValue::Integer(21))) => {
-                        System::current().stop();
-                        Ok(())
-                    }
-                    _ => panic!("Should not happen {:?}", res),
-                }),
-            _ => panic!("Should not happen {:?}", res),
-        })
-    });
+                .await;
 
-    sys.run()
+            match res {
+                Ok(Ok(RespValue::Integer(21))) => (),
+                _ => panic!("Should not happen {:?}", res),
+            }
+        }
+        _ => panic!("Should not happen {:?}", res),
+    }
 }

@@ -1,11 +1,10 @@
-use ::actix::prelude::*;
-use futures::Future;
+use actix::prelude::*;
+use futures::future::FutureExt;
 use redis_async::resp::RespValue;
 
 use std::collections::HashMap;
 
 use crate::command::*;
-use crate::redis::RespValueWrapper;
 use crate::Error;
 use crate::RedisActor;
 
@@ -42,7 +41,7 @@ impl RedisClusterActor {
         })
     }
 
-    fn refresh_slots(&mut self) -> ResponseActFuture<Self, (), ()> {
+    fn refresh_slots(&mut self) -> ResponseActFuture<Self, ()> {
         let addr = self.initial_addr.clone();
         let control_connection = self
             .connections
@@ -52,13 +51,13 @@ impl RedisClusterActor {
         Box::new(
             control_connection
                 .send(ClusterSlots)
-                .then(|res| match res {
+                .map(|res| match res {
                     Ok(Ok(slots)) => Ok(slots),
                     Ok(Err(e)) => Err(e),
                     Err(_) => Err(Error::Disconnected),
                 })
                 .into_actor(self)
-                .then(|res, this, _ctx| match res {
+                .map(|res, this, _ctx| match res {
                     Ok(slots) => {
                         for slots in slots.iter() {
                             this.connections
@@ -69,11 +68,9 @@ impl RedisClusterActor {
                         }
                         this.slots = slots;
                         debug!("slots: {:?}", this.slots);
-                        actix::fut::ok(())
                     }
                     Err(e) => {
                         warn!("refreshing slots failed: {:?}", e);
-                        actix::fut::err(())
                     }
                 }),
         )
@@ -114,7 +111,7 @@ impl Retry {
 }
 
 impl Handler<Retry> for RedisClusterActor {
-    type Result = ResponseActFuture<RedisClusterActor, RespValue, Error>;
+    type Result = ResponseActFuture<RedisClusterActor, Result<RespValue, Error>>;
 
     fn handle(&mut self, msg: Retry, _ctx: &mut Self::Context) -> Self::Result {
         fn do_retry(
@@ -122,7 +119,7 @@ impl Handler<Retry> for RedisClusterActor {
             addr: String,
             req: RespValue,
             retry: usize,
-        ) -> ResponseActFuture<RedisClusterActor, RespValue, Error> {
+        ) -> ResponseActFuture<RedisClusterActor, Result<RespValue, Error>> {
             use actix::fut::{err, ok};
 
             debug!(
@@ -138,7 +135,7 @@ impl Handler<Retry> for RedisClusterActor {
                 .or_insert_with(move || RedisActor::start(addr));
             Box::new(
                 connection
-                    .send(RespValueWrapper(req.clone()))
+                    .send(crate::redis::Command(req.clone()))
                     .into_actor(this)
                     .then(move |res, this, ctx| {
                         debug!(
@@ -186,7 +183,7 @@ impl Handler<Retry> for RedisClusterActor {
                                         Asking.into_request(),
                                         MAX_RETRY,
                                     )
-                                    .then(
+                                    .map(
                                         |res, _this, _ctx| {
                                             match res.map(Asking::from_response) {
                                                 Ok(Ok(())) => {}
@@ -195,7 +192,6 @@ impl Handler<Retry> for RedisClusterActor {
                                                     e
                                                 ),
                                             };
-                                            ok(())
                                         },
                                     ),
                                 );
@@ -222,11 +218,9 @@ where
         + 'static,
     <M as Command>::Output: Send + 'static,
 {
-    type Result = ResponseActFuture<RedisClusterActor, M::Output, Error>;
+    type Result = ResponseActFuture<RedisClusterActor, Result<M::Output, Error>>;
 
     fn handle(&mut self, msg: M, ctx: &mut Self::Context) -> Self::Result {
-        use futures::IntoFuture;
-
         // refuse operations over multiple slots
         let slot = match msg.key_slot() {
             Ok(slot) => slot,
@@ -257,11 +251,9 @@ where
             ),
         })();
 
-        Box::new(fut.and_then(|res, this, _ctx| {
-            M::from_response(res)
-                .map_err(Error::Redis)
-                .into_future()
-                .into_actor(this)
+        Box::new(fut.map(|res, _this, _ctx| match res {
+            Ok(res) => M::from_response(res).map_err(Error::Redis),
+            Err(e) => Err(e),
         }))
     }
 }

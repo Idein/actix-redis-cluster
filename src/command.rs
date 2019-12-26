@@ -592,6 +592,7 @@ impl Command for Echo {
     }
 }
 
+#[derive(Debug)]
 pub struct ScriptExists {
     pub hash: Vec<Vec<u8>>,
     pub slot: u16,
@@ -636,6 +637,7 @@ impl Command for ScriptExists {
     }
 }
 
+#[derive(Debug)]
 pub struct ScriptLoad<'a> {
     pub script: &'a str,
     pub slot: u16,
@@ -667,6 +669,7 @@ impl<'a> Command for ScriptLoad<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct ScriptFlush {
     pub slot: u16,
 }
@@ -697,6 +700,7 @@ impl Command for ScriptFlush {
     }
 }
 
+#[derive(Debug)]
 pub struct Eval<'a> {
     pub script: &'a str,
     pub keys: Vec<String>,
@@ -735,6 +739,7 @@ impl<'a> Command for Eval<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct EvalSha {
     pub hash: Vec<u8>,
     pub keys: Vec<String>,
@@ -773,6 +778,7 @@ impl Command for EvalSha {
     }
 }
 
+#[derive(Debug)]
 pub struct ClusterAddSlots {
     pub slots: Vec<u16>,
     pub target_node_slot: u16,
@@ -806,6 +812,7 @@ impl Command for ClusterAddSlots {
     }
 }
 
+#[derive(Debug)]
 pub struct ClusterDelSlots {
     pub slots: Vec<u16>,
     pub target_node_slot: u16,
@@ -931,6 +938,7 @@ impl Command for ClusterSetSlot {
     }
 }
 
+#[derive(Debug)]
 pub struct ClusterCountKeysInSlot {
     pub slot: u16,
     pub target_node_slot: u16,
@@ -962,6 +970,7 @@ impl Command for ClusterCountKeysInSlot {
     }
 }
 
+#[derive(Debug)]
 pub struct ClusterGetKeysInSlot {
     pub slot: u16,
     pub count: usize,
@@ -1001,6 +1010,7 @@ impl Command for ClusterGetKeysInSlot {
     }
 }
 
+#[derive(Debug)]
 pub struct Migrate {
     pub host: String,
     pub port: usize,
