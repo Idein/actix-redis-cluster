@@ -47,6 +47,9 @@ pub enum Error {
     IoError(std::io::Error),
 }
 
+#[cfg(feature = "web")]
+impl actix_web::ResponseError for Error {}
+
 // re-export
 pub use redis_async::error::Error as RespError;
 pub use redis_async::resp::RespValue;
