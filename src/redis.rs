@@ -96,6 +96,8 @@ impl Actor for RedisActor {
 
 impl Supervised for RedisActor {
     fn restarting(&mut self, _: &mut Self::Context) {
+        log::info!("Restarting connection to {}", self.addr);
+
         self.cell.take();
         for tx in self.queue.drain(..) {
             let _ = tx.send(Err(Error::Disconnected));

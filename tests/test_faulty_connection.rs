@@ -1,29 +1,59 @@
 use actix_redis::{command::*, RedisActor};
+use actix_web::client::Client;
 use futures::TryFutureExt;
+use std::time::Duration;
+use tokio::time::delay_for;
 
 // test whether RedisActor will eventually reconnects to Redis server
-// TODO: we need to stop toxiproxy *after* a client connected. call REST API?
 #[actix_rt::test]
-#[ignore]
 async fn test_faulty_connection() {
+    const TOXIPROXY_ADDR: &'static str = "http://127.0.0.1:8474/proxies/redis";
+
     env_logger::init();
 
-    // proxy server
-    let addr = RedisActor::start("127.0.0.1:7379");
-    let mut last = true;
+    let (sender, receiver) = futures::channel::oneshot::channel();
 
-    loop {
-        let res = addr
-            .send(Ping(None))
-            .map_err(|e| panic!("Should not happen: {:?}", e))
-            .await;
+    actix::spawn(async move {
+        // proxy server
+        let addr = RedisActor::start("127.0.0.1:7379");
+        let mut last = true;
 
-        let current = res.is_ok();
+        loop {
+            let res = addr
+                .send(Ping(None))
+                .map_err(|e| panic!("Should not happen: {:?}", e))
+                .await
+                .unwrap();
+            println!("res = {:?}", res);
 
-        if !last && current {
-            break;
+            let current = res.is_ok();
+
+            if !last && current {
+                break;
+            }
+
+            last = current;
+            tokio::task::yield_now().await;
         }
 
-        last = current;
-    }
+        sender.send(()).unwrap();
+    });
+
+    let client = Client::new();
+
+    delay_for(Duration::from_secs(3)).await;
+    client
+        .post(TOXIPROXY_ADDR)
+        .send_body(r#"{"enabled":false}"#)
+        .await
+        .unwrap();
+
+    delay_for(Duration::from_secs(3)).await;
+    client
+        .post(TOXIPROXY_ADDR)
+        .send_body(r#"{"enabled":true}"#)
+        .await
+        .unwrap();
+
+    receiver.await.unwrap();
 }
