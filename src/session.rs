@@ -42,7 +42,7 @@ impl RedisSession {
     /// * `addr` - Addr of the redis actor
     pub fn from_redis(addr: Addr<RedisActor>, key: &[u8]) -> RedisSession {
         RedisSession(Rc::new(Inner {
-            key: Key::from_master(key),
+            key: Key::derive_from(key),
             cache_keygen: Box::new(|key: &str| format!("session:{}", &key)),
             ttl: "7200".to_owned(),
             addr: Redis::Redis(addr),
@@ -68,7 +68,7 @@ impl RedisSession {
     /// * `addr` - Addr of the redis cluster actor
     pub fn from_cluster(addr: Addr<RedisClusterActor>, key: &[u8]) -> RedisSession {
         RedisSession(Rc::new(Inner {
-            key: Key::from_master(key),
+            key: Key::derive_from(key),
             cache_keygen: Box::new(|key: &str| format!("session:{}", &key)),
             ttl: "7200".to_owned(),
             addr: Redis::RedisCluster(addr),
@@ -284,7 +284,7 @@ impl Inner {
                         let value = cookie.value().to_owned();
                         let cachekey = (self.cache_keygen)(&cookie.value());
                         return match self.addr.send(Get { key: cachekey }).await {
-                            Err(e) => Err(Error::from(e)),
+                            Err(e) => Err(error::ErrorInternalServerError(e)),
                             Ok(res) => match res {
                                 Ok(val) => match val {
                                     Some(s) => {
@@ -362,7 +362,7 @@ impl Inner {
                     })
                     .await
                 {
-                    Err(e) => Err(Error::from(e)),
+                    Err(e) => Err(error::ErrorInternalServerError(e)),
                     Ok(redis_result) => match redis_result {
                         Ok(()) => {
                             if let Some(jar) = jar {
@@ -392,7 +392,7 @@ impl Inner {
             })
             .await
         {
-            Err(e) => Err(Error::from(e)),
+            Err(e) => Err(error::ErrorInternalServerError(e)),
             Ok(res) => {
                 match res {
                     // redis responds with number of deleted records
@@ -410,7 +410,7 @@ impl Inner {
         let mut cookie = Cookie::named(self.name.clone());
         cookie.set_value("");
         cookie.set_max_age(Duration::seconds(0));
-        cookie.set_expires(time::now() - Duration::days(365));
+        cookie.set_expires(Some(time::OffsetDateTime::now_utc() - Duration::days(365)));
 
         let val = HeaderValue::from_str(&cookie.to_string())
             .map_err(error::ErrorInternalServerError)?;
@@ -691,7 +691,10 @@ mod test {
             .into_iter()
             .find(|c| c.name() == "test-session")
             .unwrap();
-        assert!(&time::now().tm_year != &cookie_4.expires().map(|t| t.tm_year).unwrap());
+        assert!(
+            &time::OffsetDateTime::now_utc().year()
+                != &cookie_4.expires().map(|t| t.year()).unwrap()
+        );
 
         // Step 10: GET index, including session cookie #2 in request
         //   - set-cookie actix-session will be in response (session cookie #3)

@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use actix::Message;
 use futures::future::FutureExt;
 use redis_async::resp::RespValue;
 
@@ -48,7 +49,7 @@ impl RedisClusterActor {
             .entry(addr.clone())
             .or_insert_with(move || RedisActor::start(addr));
 
-        Box::new(
+        Box::pin(
             control_connection
                 .send(ClusterSlots)
                 .map(|res| match res {
@@ -93,15 +94,12 @@ impl Supervised for RedisClusterActor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Message)]
+#[rtype(result = "Result<RespValue, Error>")]
 struct Retry {
     addr: String,
     req: RespValue,
     retry: usize,
-}
-
-impl Message for Retry {
-    type Result = Result<RespValue, Error>;
 }
 
 impl Retry {
@@ -111,7 +109,7 @@ impl Retry {
 }
 
 impl Handler<Retry> for RedisClusterActor {
-    type Result = ResponseActFuture<RedisClusterActor, Result<RespValue, Error>>;
+    type Result = ResponseActFuture<Self, Result<RespValue, Error>>;
 
     fn handle(&mut self, msg: Retry, _ctx: &mut Self::Context) -> Self::Result {
         fn do_retry(
@@ -133,7 +131,7 @@ impl Handler<Retry> for RedisClusterActor {
                 .connections
                 .entry(addr.clone())
                 .or_insert_with(move || RedisActor::start(addr));
-            Box::new(
+            Box::pin(
                 connection
                     .send(crate::redis::Command(req.clone()))
                     .into_actor(this)
@@ -198,9 +196,9 @@ impl Handler<Retry> for RedisClusterActor {
 
                                 do_retry(this, addr.to_string(), req, retry + 1)
                             }
-                            Ok(Ok(res)) => Box::new(ok(res)),
-                            Ok(Err(e)) => Box::new(err(e)),
-                            Err(_canceled) => Box::new(err(Error::Disconnected)),
+                            Ok(Ok(res)) => Box::pin(ok(res)),
+                            Ok(Err(e)) => Box::pin(err(e)),
+                            Err(_canceled) => Box::pin(err(Error::Disconnected)),
                         }
                     }),
             )
@@ -224,7 +222,7 @@ where
         // refuse operations over multiple slots
         let slot = match msg.key_slot() {
             Ok(slot) => slot,
-            Err(e) => return Box::new(actix::fut::err(Error::MultipleSlot(e))),
+            Err(e) => return Box::pin(actix::fut::err(Error::MultipleSlot(e))),
         };
         let req = msg.into_request();
 
@@ -242,7 +240,7 @@ where
                 }
 
                 warn!("no node is serving the slot {}", slot);
-                Box::new(actix::fut::err(Error::NotConnected))
+                Box::pin(actix::fut::err(Error::NotConnected))
             }
             None => actix::Handler::handle(
                 self,
@@ -251,7 +249,7 @@ where
             ),
         })();
 
-        Box::new(fut.map(|res, _this, _ctx| match res {
+        Box::pin(fut.map(|res, _this, _ctx| match res {
             Ok(res) => M::from_response(res).map_err(Error::Redis),
             Err(e) => Err(e),
         }))

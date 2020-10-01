@@ -25,27 +25,27 @@ codecov = { repository = "actix/actix-redis", branch = "master", service = "gith
 default = ["web"]
 
 # actix-web integration
-web = ["actix/http", "actix-service", "actix-web", "actix-session/cookie-session", "rand", "serde", "serde_json"]
+web = ["actix-service", "actix-web", "actix-session/cookie-session", "rand", "serde", "serde_json"]
 
 [dependencies]
-actix = "0.9.0"
-actix-utils = "1.0.3"
+actix = "0.10.0"
+actix-utils = "2"
 
 log = "0.4.6"
-backoff = "0.1.5"
+backoff = "0.2"
 derive_more = "0.99.2"
 futures = "0.3.1"
 redis-async = "0.6.1"
 actix-rt = "1.0.0"
-time = "0.1.42"
+time = "0.2"
 tokio = "0.2.6"
-tokio-util = "0.2.0"
+tokio-util = "0.3.0"
 
 # actix web session
-actix-web = { version = "2.0.0", optional = true }
+actix-web = { version = "3.0.0", optional = true }
 actix-service = { version = "1.0.0", optional = true }
-actix-session = { version = "0.3.0", optional = true }
+actix-session = { version = "0.4", optional = true }
 rand = { version = "0.7.0", optional = true }
-serde = { version = "1.0.101", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.40", optional = true }
-env_logger = "0.6.2"
+serde = { version = "1", optional = true, features = ["derive"] }
+serde_json = { version = "1", optional = true }
+env_logger = "0.7"
