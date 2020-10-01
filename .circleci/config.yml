@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/rust:1.39
+      - image: circleci/rust:1.46
       - image: idein/redis-blackout
       - image: grokzen/redis-cluster
         environment:
